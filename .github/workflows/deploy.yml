@@ -31,9 +31,19 @@ jobs:
         run: |
           set +e
           clasp push --force > push.log 2>&1
-          code=$?
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat push.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "PUSH_EXIT_CODE=$?" >> $GITHUB_ENV
           cat push.log
-          exit $code
+
+      - name: Commit debug log on failure
+        if: env.PUSH_EXIT_CODE != '0'
+        run: |
+          git config user.email "ci@debug.local"
+          git config user.name "CI Debug"
+          cp push.log debug-push-log.txt
+          git add debug-push-log.txt
+          git commit -m "debug: clasp push log [skip ci]"
+          git push origin HEAD:main
+
+      - name: Fail if push failed
+        if: env.PUSH_EXIT_CODE != '0'
+        run: exit 1
