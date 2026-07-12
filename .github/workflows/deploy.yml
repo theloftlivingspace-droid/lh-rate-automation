@@ -28,7 +28,7 @@ jobs:
 
       - name: Write clasp credentials
         run: |
-          echo "${{ secrets.CLASP_CREDENTIALS }}" > ~/.clasprc.json
+          echo "${{ secrets.CLASP_CREDENTIALS_B64 }}" | base64 -d > ~/.clasprc.json
           python3 -m json.tool ~/.clasprc.json > /dev/null && echo "credentials JSON is valid" || echo "credentials JSON is INVALID"
 
       - name: Push to Apps Script
@@ -45,10 +45,10 @@ jobs:
           git config user.name "CI Debug"
           cp push.log debug-push-log.txt
           git add debug-push-log.txt
-          git commit -m "debug: clasp push log [skip ci]"
+          git diff --staged --quiet && echo "no change in push.log, skipping commit" || git commit -m "debug: clasp push log [skip ci]"
           git fetch origin main
           git rebase origin/main
-          git push origin HEAD:main
+          git diff HEAD origin/main --quiet || git push origin HEAD:main
 
       - name: Fail if push failed
         if: env.PUSH_EXIT_CODE != '0'
