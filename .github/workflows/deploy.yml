@@ -7,6 +7,10 @@ on:
       - 'src/**'
       - '.clasp.json'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -42,6 +46,8 @@ jobs:
           cp push.log debug-push-log.txt
           git add debug-push-log.txt
           git commit -m "debug: clasp push log [skip ci]"
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
 
       - name: Fail if push failed
