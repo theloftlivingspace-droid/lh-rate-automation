@@ -63,8 +63,12 @@ function pushRatesToLH() {
     try {
       const result = pushOnePage(startDateStr, targets, cookie);
       if (result.sessionExpired) {
-        Logger.log('❌ Session หมดอายุ — หยุดทำงานทันที ต้อง login + MFA ใหม่แล้วอัปเดต LH_SESSION_COOKIE');
-        notifySessionExpired();
+        const setAt = PropertiesService.getScriptProperties().getProperty('LH_SESSION_SET_AT');
+        const ageStr = setAt
+          ? Math.round((Date.now() - new Date(setAt).getTime()) / 3600000) + ' ชั่วโมง (ตั้งไว้เมื่อ ' + setAt + ')'
+          : 'ไม่ทราบ (ไม่มีบันทึกเวลา — sync ผ่าน SessionSync webapp ครั้งหน้าจะเริ่มบันทึกให้)';
+        Logger.log('❌ Session หมดอายุ — อายุ session: ' + ageStr + ' — หยุดทำงานทันที ต้อง login + MFA ใหม่แล้วอัปเดต LH_SESSION_COOKIE');
+        notifySessionExpired(ageStr);
         failPages++;
         break;
       }
@@ -249,15 +253,16 @@ function extractRateIdsForRoom(html, roomTypeId, ratePlanId) {
 
 // ── แจ้งเตือนเมื่อ session หมดอายุ ──
 // ใช้ endpoint /api/send-admin-alert ของ hotel-line-bot ที่มีอยู่แล้ว (ถ้าต้องการ)
-function notifySessionExpired() {
+function notifySessionExpired(ageStr) {
   const webhookUrl = PropertiesService.getScriptProperties().getProperty('ADMIN_ALERT_WEBHOOK');
   if (!webhookUrl) return;
+  const ageLine = ageStr ? ('\nอายุ session: ' + ageStr) : '';
   try {
     UrlFetchApp.fetch(webhookUrl, {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify({
-        message: '⚠️ LH session หมดอายุ — ราคาไม่ได้อัปเดตเข้า Little Hotelier กรุณา login ใหม่แล้วอัปเดต LH_SESSION_COOKIE',
+        message: '⚠️ LH session หมดอายุ — ราคาไม่ได้อัปเดตเข้า Little Hotelier กรุณา login ใหม่แล้ว sync cookie' + ageLine,
       }),
       muteHttpExceptions: true,
     });
