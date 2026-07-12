@@ -18,7 +18,7 @@
 const LH_SHEET_ID = '1XbTJLhecql_HNqyE80Hc6h30A2_elIxliudF4e6Rlz0';
 const LH_PROPERTY_ID = '14501';
 const LH_BASE_URL = 'https://apac.littlehotelier.com';
-const DRY_RUN = true; // 🔴 เปลี่ยนเป็น false หลังทดสอบแล้วมั่นใจ — deployed via CI 2026-07-13 retry6-fixed-clasp-v3
+const DRY_RUN = false; // ✅ เปิดใช้งานจริงหลังทดสอบ dry run ผ่านแล้ว (2026-07-13)
 
 // room type → LH room_type_id + rate_plan_id (Standard rate plan เท่านั้น)
 const ROOM_LH_MAP = {
