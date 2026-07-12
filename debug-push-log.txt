@@ -1,1 +1,1 @@
-Expected property name or '}' in JSON at position 4
+Expected property name or '}' in JSON at position 6
