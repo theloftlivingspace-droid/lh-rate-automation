@@ -1,7 +1,7 @@
 /**
  * LHRateAutomation.gs
  * ---------------------------------------------------------
- * (CI test: workflow race-condition fix verification)
+ * (CI test: credentials fix verification)
  * อ่านราคาจาก sheet "Target_Rates" (เขียนโดย computeTargetRates.gs)
  * แล้วโพสต์เข้า Little Hotelier ผ่าน session cookie (ไม่มี public API)
  *
