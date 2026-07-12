@@ -12,3 +12,12 @@ Nightly rate automation pipeline for Little Hotelier (The Loft Living Space).
 ## Trigger schedule
 - `computeTargetRates()` — ทุกคืน 02:00 (Asia/Bangkok)
 - `pushRatesToLH()` — ทุกคืน ~02:20 (Asia/Bangkok)
+
+## Deploy pipeline
+Push เข้า `main` branch (แก้ไฟล์ใน `src/`) → GitHub Action รัน `clasp push --force` เข้า Apps Script project อัตโนมัติ
+
+Script ID: `1WqeF-SF_MgVQ4bBZzkPD6SqvOuyEQiaWEmxhNwFpEgu9NyHmUJY4BazK`
+
+**ต้องตั้ง GitHub Secret ก่อนใช้งาน:** Settings → Secrets and variables → Actions → New repository secret
+- ชื่อ: `CLASP_CREDENTIALS`
+- ค่า: เนื้อหาไฟล์ `~/.clasprc.json` ทั้งหมด (จาก `clasp login` บนเครื่อง)
