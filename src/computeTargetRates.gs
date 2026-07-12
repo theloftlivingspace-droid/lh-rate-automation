@@ -101,10 +101,10 @@ function computeAdvanceOccupancy() {
   const data = ws.getDataRange().getValues();
   const headers = data[0].map(h => String(h).trim());
 
-  const roomTypeCol = headers.findIndex(h => /room.?type/i.test(h));
-  const checkinCol = headers.findIndex(h => /check.?in/i.test(h));
-  const checkoutCol = headers.findIndex(h => /check.?out/i.test(h));
-  const statusCol = headers.findIndex(h => /status/i.test(h));
+  const roomTypeCol = headers.findIndex(h => /room.?type|เลขห้อง|ห้อง/i.test(h));
+  const checkinCol = headers.findIndex(h => /check.?in|เช็ค.?อิน/i.test(h));
+  const checkoutCol = headers.findIndex(h => /check.?out|เช็ค.?เอาท์/i.test(h));
+  const statusCol = headers.findIndex(h => /status|สถานะ/i.test(h));
 
   if (roomTypeCol === -1 || checkinCol === -1 || checkoutCol === -1) {
     throw new Error('หา column RoomType/CheckIn/CheckOut ใน Bookings sheet ไม่เจอ — เช็คชื่อ header');
@@ -118,7 +118,11 @@ function computeAdvanceOccupancy() {
     if (!row[roomTypeCol] || !row[checkinCol] || !row[checkoutCol]) continue;
     if (statusCol !== -1 && /cancel/i.test(String(row[statusCol]))) continue;
 
-    const roomType = normalizeRoomType(String(row[roomTypeCol]));
+    const roomCell = String(row[roomTypeCol]);
+    // เซลล์บางแถวมีคำว่ายกเลิก/no show ปนอยู่ (เช่น "203 ยกเลิก", "205 Allure ยกเลิก") — ข้ามทันที
+    if (/ยกเลิก|cancel|no ?show/i.test(roomCell)) continue;
+
+    const roomType = normalizeRoomType(roomCell);
     if (!ROOM_CONFIG[roomType]) continue;
 
     let ci = new Date(row[checkinCol]);
@@ -135,6 +139,20 @@ function computeAdvanceOccupancy() {
 }
 
 // แปลงชื่อ room type จาก Bookings sheet ให้ตรงกับ ROOM_CONFIG keys
+const ROOM_NUMBER_TO_TYPE = {
+  '103': 'Elegance',
+  '108': 'Retro',
+  '113': 'Legacy',
+  '203': 'Allure',
+  '204': 'Elegance',
+  '205': 'Allure',
+  '209': 'Radiance',
+  '210': 'Radiance',
+  '214': 'Legacy',
+  '300': 'Luxury',
+  '363': 'Mycondo', // ไม่อยู่ใน ROOM_CONFIG — จะถูกข้ามอัตโนมัติ
+};
+
 function normalizeRoomType(raw) {
   const s = raw.toLowerCase();
   if (s.includes('lux')) return 'Luxury';
@@ -143,6 +161,11 @@ function normalizeRoomType(raw) {
   if (s.includes('elegance') || s.includes('elegan')) return 'Elegance';
   if (s.includes('legacy')) return 'Legacy';
   if (s.includes('radiance')) return 'Radiance';
+
+  // ไม่มีชื่อประเภทห้องในเซลล์ (เช่นมีแค่เลขห้อง) — fallback ไปดูจากเลขห้องนำหน้า
+  const m = raw.match(/^(\d+)/);
+  if (m && ROOM_NUMBER_TO_TYPE[m[1]]) return ROOM_NUMBER_TO_TYPE[m[1]];
+
   return raw; // ไม่ match จะถูกข้ามใน ROOM_CONFIG check
 }
 
