@@ -28,11 +28,12 @@ jobs:
           python3 -m json.tool ~/.clasprc.json > /dev/null && echo "credentials JSON is valid" || echo "credentials JSON is INVALID"
 
       - name: Push to Apps Script
-        run: clasp push --force 2>&1 | tee push.log; test ${PIPESTATUS[0]} -eq 0
-
-      - name: Upload log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: clasp-push-log
-          path: push.log
+        run: |
+          set +e
+          clasp push --force > push.log 2>&1
+          code=$?
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat push.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat push.log
+          exit $code
