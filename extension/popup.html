@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: -apple-system, "Segoe UI", sans-serif;
+      width: 260px;
+      padding: 14px;
+      margin: 0;
+    }
+    h3 {
+      font-size: 14px;
+      margin: 0 0 10px;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      font-size: 14px;
+      border: none;
+      border-radius: 6px;
+      background: #142E67;
+      color: #CEB14B;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h3>🔄 LH Session Sync</h3>
+  <button id="syncBtn">Sync LH Session</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

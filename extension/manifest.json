@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "LH Session Sync",
+  "version": "1.0",
+  "description": "กดปุ่มเดียว sync คุกกี้ Little Hotelier เข้า lh-rate-automation หลัง login ผ่าน MFA",
+  "permissions": ["cookies"],
+  "host_permissions": [
+    "https://apac.littlehotelier.com/*",
+    "https://script.google.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Sync LH Session"
+  }
+}
