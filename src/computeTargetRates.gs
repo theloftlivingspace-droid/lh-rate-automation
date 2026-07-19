@@ -25,11 +25,11 @@ const ROOM_CONFIG = {
 };
 
 // ── DOW multiplier ──
-// จันทร์-พฤหัส = 1.0, ศุกร์ = 1.15, เสาร์-อาทิตย์ = 1.30
+// จันทร์-พฤหัส = 1.0, ศุกร์ = 1.035, เสาร์-อาทิตย์ = 1.17 (ลดจากเดิม -10% เมื่อ 19 ก.ค. 2026)
 function getDowMult(date) {
   const d = date.getDay(); // 0=Sun ... 6=Sat
-  if (d === 0 || d === 6) return 1.30;
-  if (d === 5) return 1.15;
+  if (d === 0 || d === 6) return 1.17;
+  if (d === 5) return 1.035;
   return 1.0;
 }
 
