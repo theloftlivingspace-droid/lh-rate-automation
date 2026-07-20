@@ -62,6 +62,15 @@ function getOccMult(occPct) {
   return rule.mult;
 }
 
+// ── Promo: ลดราคาโดยรวม -10% ชั่วคราว ถึงสิ้นเดือน (ตั้ง 20 ก.ค. 2026) ──
+const PROMO_DISC_PCT = 10;
+const PROMO_END_DATE = new Date(2026, 6, 31); // 31 ก.ค. 2026 (month index 6 = July)
+function getPromoMult(date) {
+  const d = new Date(date); d.setHours(0,0,0,0);
+  const end = new Date(PROMO_END_DATE); end.setHours(0,0,0,0);
+  return d <= end ? 1 - (PROMO_DISC_PCT / 100) : 1.0;
+}
+
 // ── Lead time discount ──
 const LEAD_TIME_RULES = [
   { minDays: 75, discPct: 22 },
@@ -84,8 +93,9 @@ function calcRate(roomType, date, occPct, daysAhead) {
   const seasonMult = SEASON_MULT[season];
   const occMult = getOccMult(occPct);
   const leadMult = getLeadMult(daysAhead);
+  const promoMult = getPromoMult(date);
 
-  let price = cfg.base * dowMult * seasonMult * occMult * leadMult;
+  let price = cfg.base * dowMult * seasonMult * occMult * leadMult * promoMult;
   price = Math.round(price / 50) * 50;
 
   const floor = Math.round((cfg.min * 1.1) / 50) * 50;
