@@ -40,6 +40,14 @@ function pushRatesToLH() {
     return;
   }
 
+  // ── เช็ค session ก่อนแตะราคาจริงแม้แต่หน้าเดียว ──
+  if (!checkSessionValid_(cookie)) {
+    const ageStr = getSessionAgeStr_();
+    Logger.log('❌ Session หมดอายุ (ตรวจพบก่อนเริ่มส่งราคา) — หยุดทันที ยังไม่แตะราคาใดๆ');
+    notifySessionExpired(ageStr);
+    return;
+  }
+
   const targets = readTargetRates(); // { 'YYYY-MM-DD': { RoomType: rate, ... }, ... }
   const dates = Object.keys(targets).sort();
   if (dates.length === 0) {
@@ -63,10 +71,7 @@ function pushRatesToLH() {
     try {
       const result = pushOnePage(startDateStr, targets, cookie);
       if (result.sessionExpired) {
-        const setAt = PropertiesService.getScriptProperties().getProperty('LH_SESSION_SET_AT');
-        const ageStr = setAt
-          ? Math.round((Date.now() - new Date(setAt).getTime()) / 3600000) + ' ชั่วโมง (ตั้งไว้เมื่อ ' + setAt + ')'
-          : 'ไม่ทราบ (ไม่มีบันทึกเวลา — sync ผ่าน SessionSync webapp ครั้งหน้าจะเริ่มบันทึกให้)';
+        const ageStr = getSessionAgeStr_();
         Logger.log('❌ Session หมดอายุ — อายุ session: ' + ageStr + ' — หยุดทำงานทันที ต้อง login + MFA ใหม่แล้วอัปเดต LH_SESSION_COOKIE');
         notifySessionExpired(ageStr);
         failPages++;
@@ -84,6 +89,32 @@ function pushRatesToLH() {
   }
 
   Logger.log(`สรุป: สำเร็จ ${successPages} หน้า, ล้มเหลว ${failPages} หน้า, อัปเดตรวม ${totalUpdated} ช่อง`);
+}
+
+// ── ตรวจสอบว่า session ยังใช้ได้ไหม (GET เบาๆ 1 ครั้ง ก่อนแตะราคาจริง) ──
+function checkSessionValid_(cookie) {
+  const todayStr = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=${todayStr}&viewable_fields=detailed`;
+  try {
+    const resp = UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: { Cookie: `_littlehotelier_session=${cookie}` },
+      muteHttpExceptions: true,
+    });
+    const html = resp.getContentText();
+    return resp.getResponseCode() === 200 && html.indexOf('rate_plan_dates') !== -1;
+  } catch (e) {
+    Logger.log('checkSessionValid_ error: ' + e);
+    return false;
+  }
+}
+
+// ── คำนวณอายุ session สำหรับข้อความแจ้งเตือน ──
+function getSessionAgeStr_() {
+  const setAt = PropertiesService.getScriptProperties().getProperty('LH_SESSION_SET_AT');
+  return setAt
+    ? Math.round((Date.now() - new Date(setAt).getTime()) / 3600000) + ' ชั่วโมง (ตั้งไว้เมื่อ ' + setAt + ')'
+    : 'ไม่ทราบ (ไม่มีบันทึกเวลา — sync ผ่าน SessionSync webapp ครั้งหน้าจะเริ่มบันทึกให้)';
 }
 
 // ── อ่าน Target_Rates sheet ──
