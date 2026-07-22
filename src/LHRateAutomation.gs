@@ -251,23 +251,52 @@ function extractRateIdsForRoom(html, roomTypeId, ratePlanId) {
   return ids;
 }
 
-// ── แจ้งเตือนเมื่อ session หมดอายุ ──
-// ใช้ endpoint /api/send-admin-alert ของ hotel-line-bot ที่มีอยู่แล้ว (ถ้าต้องการ)
+// ── แจ้งเตือนเมื่อ session หมดอายุ (LINE DM หา admin เท่านั้น, main OA → backup OA) ──
 function notifySessionExpired(ageStr) {
-  const webhookUrl = PropertiesService.getScriptProperties().getProperty('ADMIN_ALERT_WEBHOOK');
-  if (!webhookUrl) return;
+  const props = PropertiesService.getScriptProperties();
   const ageLine = ageStr ? ('\nอายุ session: ' + ageStr) : '';
+  const message = '⚠️ LH session หมดอายุ — ราคาไม่ได้อัปเดตเข้า Little Hotelier กรุณา login ใหม่แล้ว sync cookie' + ageLine;
+
+  const oaConfigs = [
+    { token: props.getProperty('LINE_CHANNEL_ACCESS_TOKEN'), userId: props.getProperty('ADMIN_USER_ID'), label: 'main' },
+    { token: props.getProperty('LINE_CHANNEL_ACCESS_TOKEN_BACKUP'), userId: props.getProperty('ADMIN_USER_ID_BACKUP'), label: 'backup' },
+  ];
+
+  for (const oa of oaConfigs) {
+    if (!oa.token || !oa.userId) {
+      Logger.log(`⚠️ ข้าม OA (${oa.label}) — ไม่มี token หรือ userId ใน Script Properties`);
+      continue;
+    }
+    if (sendLinePush_(oa.token, oa.userId, message)) {
+      Logger.log(`✅ แจ้งเตือน session หมดอายุ สำเร็จผ่าน OA (${oa.label})`);
+      return;
+    }
+    Logger.log(`⚠️ ส่งผ่าน OA (${oa.label}) ไม่สำเร็จ ลอง OA ถัดไป...`);
+  }
+
+  Logger.log('❌ แจ้งเตือนไม่สำเร็จทั้ง main และ backup OA — ไม่มีทางแจ้ง Nathan ได้เลยรอบนี้');
+}
+
+// ── ส่ง LINE push message ไปหา userId เดียว ──
+function sendLinePush_(token, userId, message) {
   try {
-    UrlFetchApp.fetch(webhookUrl, {
+    const resp = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
       method: 'post',
       contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + token },
       payload: JSON.stringify({
-        message: '⚠️ LH session หมดอายุ — ราคาไม่ได้อัปเดตเข้า Little Hotelier กรุณา login ใหม่แล้ว sync cookie' + ageLine,
+        to: userId,
+        messages: [{ type: 'text', text: message }],
       }),
       muteHttpExceptions: true,
     });
+    const code = resp.getResponseCode();
+    if (code === 200) return true;
+    Logger.log(`LINE push status ${code}: ${resp.getContentText()}`);
+    return false;
   } catch (e) {
-    Logger.log('แจ้งเตือนไม่สำเร็จ: ' + e);
+    Logger.log('LINE push error: ' + e);
+    return false;
   }
 }
 
