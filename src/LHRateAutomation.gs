@@ -262,6 +262,17 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
     throw new Error(`POST ล้มเหลว status ${postResp.getResponseCode()}`);
   }
 
+  // ── เช็คเนื้อหา response จริง — status code 2xx/3xx ไม่ได้แปลว่าราคาถูกบันทึกจริงเสมอไป ──
+  // (เจอเคส: LH เพิ่ม security-code gate แล้ว POST โดน redirect ไปหน้า verify code แทน
+  //  แต่ response ยัง 200 ปกติ ทำให้ script คิดว่าสำเร็จทั้งที่ราคาไม่เปลี่ยนเลย)
+  const postHtml = postResp.getContentText();
+  const securityGateHit = /security verification required|generate security code/i.test(postHtml);
+  if (securityGateHit) {
+    const msg = `หน้า ${startDateStr}: POST โดน redirect ไปหน้า "Security verification required" — ราคาไม่ถูกบันทึกจริง แม้ status จะดูปกติ (ต้องกด Generate Security Code + กรอกรหัสในเบราว์เซอร์ก่อน แล้ว sync cookie ใหม่)`;
+    Logger.log(`❌ ${msg}`);
+    throw new Error(msg);
+  }
+
   return { sessionExpired: false, updatedCount, diffs, extractionFailures };
 }
 
