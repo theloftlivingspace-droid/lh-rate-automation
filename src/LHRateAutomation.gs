@@ -250,6 +250,11 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
 
   // POST กลับ (รวม authenticity_token ล่าสุดจากหน้านี้)
   fieldMap['authenticity_token'] = authToken;
+
+  const sentFieldCount = Object.keys(fieldMap).length;
+  const parsedFieldCount = fields.length;
+  Logger.log(`  📤 หน้า ${startDateStr}: ส่ง ${sentFieldCount} fields (parse ได้จากฟอร์มเดิม ${parsedFieldCount} fields), authenticity_token length=${authToken ? authToken.length : 0}`);
+
   const postResp = UrlFetchApp.fetch(`${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory`, {
     method: 'post',
     headers: { Cookie: `_littlehotelier_session=${cookie}` },
@@ -258,8 +263,19 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
     muteHttpExceptions: true,
   });
 
-  if (postResp.getResponseCode() >= 400) {
-    throw new Error(`POST ล้มเหลว status ${postResp.getResponseCode()}`);
+  const postCode = postResp.getResponseCode();
+  const postHtml = postResp.getContentText();
+  const postHeaders = postResp.getAllHeaders();
+  const flashMatch = postHtml.match(/class="[^"]*(?:flash|alert|error)[^"]*"[^>]*>([^<]{1,150})/i);
+  Logger.log(
+    `  📥 POST response หน้า ${startDateStr}: status=${postCode}, bodyLength=${postHtml.length}, ` +
+    `flash/error message="${flashMatch ? flashMatch[1].trim() : '(ไม่เจอ)'}"` +
+    (postHeaders['x-request-id'] ? `, x-request-id=${postHeaders['x-request-id']}` : '')
+  );
+  Logger.log(`  📄 body preview: ${postHtml.substring(0, 300).replace(/\s+/g, ' ')}`);
+
+  if (postCode >= 400) {
+    throw new Error(`POST ล้มเหลว status ${postCode}`);
   }
 
   // ── ยืนยันผลจริง — status code 2xx/3xx ไม่ได้แปลว่าราคาถูกบันทึกจริงเสมอไป ──
