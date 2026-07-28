@@ -46,12 +46,14 @@ function getSeasonForDate(date) {
 }
 
 // ── Occupancy multiplier ──
+// อัปเดต 29 ก.ค. 2026: ทำ tier ต่ำ (occ น้อย) ให้ชันขึ้น ลดแรงกว่าเดิมตอนห้องว่างเยอะ
+// tier กลาง-สูง (75%+) คงเดิม ไม่กระทบช่วงห้องเต็ม
 const OCC_RULES = [
-  { max: 10,  mult: 0.55 },
-  { max: 20,  mult: 0.65 },
-  { max: 35,  mult: 0.78 },
-  { max: 50,  mult: 0.88 },
-  { max: 65,  mult: 0.95 },
+  { max: 10,  mult: 0.45 },
+  { max: 20,  mult: 0.55 },
+  { max: 35,  mult: 0.68 },
+  { max: 50,  mult: 0.80 },
+  { max: 65,  mult: 0.90 },
   { max: 75,  mult: 1.00 },
   { max: 85,  mult: 1.10 },
   { max: 92,  mult: 1.20 },
