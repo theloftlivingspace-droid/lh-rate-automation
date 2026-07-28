@@ -21,6 +21,16 @@ function doPost(e) {
     ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 
   try {
+    const rawType = e.postData ? e.postData.type : '(no postData)';
+    const rawLen = e.postData && e.postData.contents ? e.postData.contents.length : 0;
+    const rawPreview = e.postData && e.postData.contents ? e.postData.contents.substring(0, 200) : '';
+    Logger.log(`📥 doPost รับ request — type: ${rawType}, length: ${rawLen}, preview: ${rawPreview}`);
+
+    if (!e.postData || !e.postData.contents) {
+      Logger.log('❌ ไม่มี postData.contents เลย — น่าจะโดน redirect drop body ระหว่างทาง');
+      return respond({ ok: false, error: 'ไม่มี body ส่งมาถึง doPost (postData ว่าง) — เช็ค redirect/CORS ฝั่ง extension' });
+    }
+
     const body = JSON.parse(e.postData.contents);
     const expectedToken = PropertiesService.getScriptProperties().getProperty('SESSION_SYNC_TOKEN');
 
