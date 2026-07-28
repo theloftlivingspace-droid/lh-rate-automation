@@ -16,6 +16,7 @@
  * ── การใช้งาน ──
  *   GET {WEB_APP_URL}/exec?action=pushRates&token=...       → รัน pushRatesToLH() เลย (ใช้ Target_Rates ที่มีอยู่)
  *   GET {WEB_APP_URL}/exec?action=computeAndPush&token=...  → รัน computeTargetRates() ก่อน แล้วค่อย pushRatesToLH()
+ *   GET {WEB_APP_URL}/exec?action=diffRates&token=...       → เทียบ Target_Rates vs LH จริง (ไม่แก้อะไร) ผลอยู่ที่ sheet tab "Rate_Diff_Check"
  *
  * หมายเหตุ: งานจริงถูก "คิว" ผ่าน one-off trigger (ScriptApp...after(1000)) แทนที่จะรันตรงใน doGet
  * เพราะ pushRatesToLH() ใช้เวลาหลายสิบวินาที (มี Utilities.sleep ระหว่างหน้า) ซึ่งอาจเกิน timeout ของ
@@ -39,7 +40,7 @@ function doGet(e) {
   }
 
   const action = params.action;
-  const validActions = { pushRates: 'pushRatesToLH', computeAndPush: 'computeThenPush' };
+  const validActions = { pushRates: 'pushRatesToLH', computeAndPush: 'computeThenPush', diffRates: 'diffRatesVsLH' };
   const handlerFn = validActions[action];
   if (!handlerFn) {
     return respond({ ok: false, error: 'action ไม่ถูกต้อง — ใช้ pushRates หรือ computeAndPush' });

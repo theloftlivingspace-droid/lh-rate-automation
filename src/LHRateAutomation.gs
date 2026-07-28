@@ -76,6 +76,7 @@ function pushRatesToLH_() {
 
   let successPages = 0, failPages = 0, totalUpdated = 0;
   const pageErrors = [];
+  const allExtractionFailures = [];
 
   for (let p = 0; p < numPages; p++) {
     const pageStart = new Date(today);
@@ -93,6 +94,9 @@ function pushRatesToLH_() {
       }
       successPages++;
       totalUpdated += result.updatedCount;
+      if (result.extractionFailures && result.extractionFailures.length > 0) {
+        allExtractionFailures.push(...result.extractionFailures);
+      }
       Logger.log(`✅ หน้า ${startDateStr}: อัปเดต ${result.updatedCount} ช่อง (dry_run=${DRY_RUN})`);
     } catch (err) {
       Logger.log(`❌ หน้า ${startDateStr} error: ${err}`);
@@ -111,6 +115,14 @@ function pushRatesToLH_() {
       `⚠️ Rate push มีบางหน้าล้มเหลว (${failPages}/${numPages} หน้า)\n` +
       `สำเร็จ ${successPages} หน้า, อัปเดตรวม ${totalUpdated} ช่อง\n` +
       pageErrors.slice(0, 5).join('\n')
+    );
+  }
+
+  // ── แจ้งเตือนถ้าหา rate IDs ไม่เจอ (เดิมแค่ log — ห้องนั้นจะค้างราคาเก่าถาวรโดยไม่มีใครรู้) ──
+  if (allExtractionFailures.length > 0) {
+    notifyAdmin_(
+      `⚠️ Rate push หาราคาบางห้องใน LH ไม่เจอ (HTML โครงสร้างอาจเปลี่ยน) — ห้องเหล่านี้จะไม่ถูกอัปเดต:\n` +
+      allExtractionFailures.slice(0, 8).join('\n')
     );
   }
 }
@@ -161,7 +173,8 @@ function readTargetRates() {
 }
 
 // ── ประมวลผล 1 หน้า (14 วัน) ──
-function pushOnePage(startDateStr, targets, cookie) {
+// dryRunOverride: true = ไม่ POST เด็ดขาด (ใช้กับ diffRatesVsLH) ไม่ขึ้นกับ DRY_RUN const
+function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
   const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=${startDateStr}&viewable_fields=detailed`;
   const resp = UrlFetchApp.fetch(url, {
     method: 'get',
@@ -171,7 +184,7 @@ function pushOnePage(startDateStr, targets, cookie) {
 
   const html = resp.getContentText();
   if (resp.getResponseCode() !== 200 || html.indexOf('rate_plan_dates') === -1) {
-    return { sessionExpired: true, updatedCount: 0 };
+    return { sessionExpired: true, updatedCount: 0, diffs: [], extractionFailures: [] };
   }
 
   const authToken = extractAuthToken(html);
@@ -189,12 +202,16 @@ function pushOnePage(startDateStr, targets, cookie) {
   }
 
   let updatedCount = 0;
+  const diffs = [];
+  const extractionFailures = [];
 
   Object.keys(ROOM_LH_MAP).forEach(roomType => {
     const { roomTypeId, ratePlanId } = ROOM_LH_MAP[roomType];
     const rateIds = extractRateIdsForRoom(html, roomTypeId, ratePlanId); // 14 ID เรียงตามวัน
     if (!rateIds || rateIds.length !== PAGE_SIZE_DAYS) {
-      Logger.log(`⚠️ ${roomType}: หา rate IDs ไม่ครบ 14 ช่อง (ได้ ${rateIds ? rateIds.length : 0}) — ข้าม`);
+      const msg = `${roomType} หน้า ${startDateStr}: หา rate IDs ไม่ครบ 14 ช่อง (ได้ ${rateIds ? rateIds.length : 0})`;
+      Logger.log(`⚠️ ${msg} — ข้าม (ราคาห้องนี้จะไม่ถูกอัปเดตในหน้านี้เลย)`);
+      extractionFailures.push(msg);
       return;
     }
 
@@ -208,19 +225,27 @@ function pushOnePage(startDateStr, targets, cookie) {
 
       if (currentRate === targetRate) return; // ไม่เปลี่ยน ไม่ต้องนับ/แก้
 
+      diffs.push({ date: dateStr, roomType, currentRate, targetRate });
       Logger.log(`  ${roomType} ${dateStr}: ${currentRate} → ${targetRate}`);
+
+      if (dryRunOverride) return; // diff-only mode: อย่าแตะ fieldMap/POST
+
       fieldMap[fieldName] = String(targetRate);
       updatedCount++;
     });
   });
 
+  if (dryRunOverride) {
+    return { sessionExpired: false, updatedCount: diffs.length, diffs, extractionFailures };
+  }
+
   if (updatedCount === 0) {
     Logger.log(`  (ไม่มีราคาเปลี่ยนแปลงในหน้า ${startDateStr})`);
-    return { sessionExpired: false, updatedCount: 0 };
+    return { sessionExpired: false, updatedCount: 0, diffs, extractionFailures };
   }
 
   if (DRY_RUN) {
-    return { sessionExpired: false, updatedCount };
+    return { sessionExpired: false, updatedCount, diffs, extractionFailures };
   }
 
   // POST กลับ (รวม authenticity_token ล่าสุดจากหน้านี้)
@@ -237,7 +262,7 @@ function pushOnePage(startDateStr, targets, cookie) {
     throw new Error(`POST ล้มเหลว status ${postResp.getResponseCode()}`);
   }
 
-  return { sessionExpired: false, updatedCount };
+  return { sessionExpired: false, updatedCount, diffs, extractionFailures };
 }
 
 // ── ดึง authenticity_token จาก HTML ──
@@ -386,4 +411,83 @@ function setupNightlyPushTrigger() {
     .inTimezone('Asia/Bangkok')
     .create();
   Logger.log('ตั้ง trigger เรียบร้อย: pushRatesToLH ทุกคืน ~02:20');
+}
+
+// ── Diagnostic: เทียบราคาใน Target_Rates กับราคาที่ LH แสดงจริงตอนนี้ โดยไม่แก้อะไรเลย ──
+// เขียนผลลง sheet tab "Rate_Diff_Check" (Date | RoomType | LH_Current | Target | CheckedAt)
+// ใช้ตอนสงสัยว่า "rate ใน LH ไม่ตรงกับใน sheet" — รันแล้วเปิด tab นี้ดูได้เลยว่าห้อง/วันไหนต่างกันจริง
+function diffRatesVsLH() {
+  const cookie = PropertiesService.getScriptProperties().getProperty('LH_SESSION_COOKIE');
+  if (!cookie) {
+    Logger.log('❌ ไม่พบ LH_SESSION_COOKIE');
+    notifyAdmin_('⚠️ diffRatesVsLH ทำไม่ได้ — ไม่พบ LH_SESSION_COOKIE');
+    return;
+  }
+  if (!checkSessionValid_(cookie)) {
+    notifySessionExpired(getSessionAgeStr_());
+    return;
+  }
+
+  const targets = readTargetRates();
+  const dates = Object.keys(targets).sort();
+  if (dates.length === 0) {
+    Logger.log('ไม่มีข้อมูลใน Target_Rates');
+    return;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const lastDate = new Date(dates[dates.length - 1] + 'T00:00:00');
+  const totalDays = Math.round((lastDate - today) / 86400000) + 1;
+  const numPages = Math.ceil(totalDays / PAGE_SIZE_DAYS);
+
+  const allDiffs = [];
+  const allExtractionFailures = [];
+
+  for (let p = 0; p < numPages; p++) {
+    const pageStart = new Date(today);
+    pageStart.setDate(today.getDate() + p * PAGE_SIZE_DAYS);
+    const startDateStr = Utilities.formatDate(pageStart, 'Asia/Bangkok', 'yyyy-MM-dd');
+    try {
+      const result = pushOnePage(startDateStr, targets, cookie, /* dryRunOverride */ true);
+      if (result.sessionExpired) {
+        notifySessionExpired(getSessionAgeStr_());
+        break;
+      }
+      allDiffs.push(...result.diffs);
+      allExtractionFailures.push(...result.extractionFailures);
+    } catch (err) {
+      Logger.log(`❌ diffRatesVsLH หน้า ${startDateStr} error: ${err}`);
+    }
+    Utilities.sleep(1500);
+  }
+
+  const ss = SpreadsheetApp.openById(LH_SHEET_ID);
+  let sheet = ss.getSheetByName('Rate_Diff_Check');
+  if (!sheet) sheet = ss.insertSheet('Rate_Diff_Check');
+  sheet.clearContents();
+  sheet.appendRow(['Date', 'RoomType', 'LH_Current', 'Target_Rates', 'Diff', 'CheckedAt']);
+
+  const now = new Date().toISOString();
+  if (allDiffs.length > 0) {
+    const rows = allDiffs.map(d => [d.date, d.roomType, d.currentRate, d.targetRate, d.targetRate - (d.currentRate || 0), now]);
+    sheet.getRange(2, 1, rows.length, 6).setValues(rows);
+  }
+  if (allExtractionFailures.length > 0) {
+    sheet.appendRow(['', '', '', '', '', '']);
+    sheet.appendRow(['⚠️ หา rate IDs ไม่เจอ (ห้อง/หน้าเหล่านี้เทียบไม่ได้เลย):', '', '', '', '', '']);
+    allExtractionFailures.forEach(msg => sheet.appendRow([msg, '', '', '', '', '']));
+  }
+
+  Logger.log(`สรุป diffRatesVsLH: พบ ${allDiffs.length} ช่องที่ไม่ตรงกัน, extraction failures ${allExtractionFailures.length} รายการ — ดูรายละเอียดที่ sheet "Rate_Diff_Check"`);
+
+  if (allDiffs.length === 0 && allExtractionFailures.length === 0) {
+    notifyAdmin_('✅ diffRatesVsLH: เช็คแล้ว ราคาทุกห้อง/วันที่ตรงกับ Target_Rates ทั้งหมด');
+  } else {
+    notifyAdmin_(
+      `🔍 diffRatesVsLH: พบไม่ตรงกัน ${allDiffs.length} ช่อง` +
+      (allExtractionFailures.length > 0 ? `, หา rate ID ไม่เจอ ${allExtractionFailures.length} รายการ` : '') +
+      `\nรายละเอียดดูที่ sheet tab "Rate_Diff_Check"`
+    );
+  }
 }
