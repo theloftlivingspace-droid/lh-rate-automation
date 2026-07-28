@@ -33,10 +33,22 @@ const ROOM_LH_MAP = {
 const PAGE_SIZE_DAYS = 14; // Little Hotelier แสดง 14 วันต่อหน้า
 
 // ── Main entry point ──
+// หมายเหตุ: ห่อด้วย try/catch ชั้นนอก เพราะเดิมถ้า error ที่ไม่ใช่ session-expired
+// (เช่น exception ตอนอ่าน sheet, network error ตอน checkSessionValid_) จะไม่มีการแจ้งเตือนเลย
 function pushRatesToLH() {
+  try {
+    pushRatesToLH_();
+  } catch (err) {
+    Logger.log('❌ pushRatesToLH ล้มเหลวทั้งฟังก์ชัน (uncaught): ' + err);
+    notifyAdmin_('⚠️ Rate push ล้มเหลว (unexpected error)\nราคาอาจไม่ได้อัปเดตเข้า Little Hotelier\n' + err);
+  }
+}
+
+function pushRatesToLH_() {
   const cookie = PropertiesService.getScriptProperties().getProperty('LH_SESSION_COOKIE');
   if (!cookie) {
     Logger.log('❌ ไม่พบ LH_SESSION_COOKIE ใน Script Properties — ตั้งค่าก่อนรัน');
+    notifyAdmin_('⚠️ Rate push ไม่ทำงาน — ไม่พบ LH_SESSION_COOKIE ใน Script Properties');
     return;
   }
 
@@ -52,6 +64,7 @@ function pushRatesToLH() {
   const dates = Object.keys(targets).sort();
   if (dates.length === 0) {
     Logger.log('ไม่มีข้อมูลใน Target_Rates — รัน computeTargetRates() ก่อน');
+    notifyAdmin_('⚠️ Rate push ข้าม — sheet "Target_Rates" ว่างเปล่า (computeTargetRates() อาจยังไม่รัน หรือรันแล้ว error)');
     return;
   }
 
@@ -62,6 +75,7 @@ function pushRatesToLH() {
   const numPages = Math.ceil(totalDays / PAGE_SIZE_DAYS);
 
   let successPages = 0, failPages = 0, totalUpdated = 0;
+  const pageErrors = [];
 
   for (let p = 0; p < numPages; p++) {
     const pageStart = new Date(today);
@@ -82,6 +96,7 @@ function pushRatesToLH() {
       Logger.log(`✅ หน้า ${startDateStr}: อัปเดต ${result.updatedCount} ช่อง (dry_run=${DRY_RUN})`);
     } catch (err) {
       Logger.log(`❌ หน้า ${startDateStr} error: ${err}`);
+      pageErrors.push(`${startDateStr}: ${err}`);
       failPages++;
     }
 
@@ -89,6 +104,15 @@ function pushRatesToLH() {
   }
 
   Logger.log(`สรุป: สำเร็จ ${successPages} หน้า, ล้มเหลว ${failPages} หน้า, อัปเดตรวม ${totalUpdated} ช่อง`);
+
+  // ── แจ้งเตือนถ้ามีหน้าล้มเหลวที่ไม่ใช่ session-expired (เดิมไม่มีการแจ้งเตือนส่วนนี้เลย) ──
+  if (pageErrors.length > 0) {
+    notifyAdmin_(
+      `⚠️ Rate push มีบางหน้าล้มเหลว (${failPages}/${numPages} หน้า)\n` +
+      `สำเร็จ ${successPages} หน้า, อัปเดตรวม ${totalUpdated} ช่อง\n` +
+      pageErrors.slice(0, 5).join('\n')
+    );
+  }
 }
 
 // ── ตรวจสอบว่า session ยังใช้ได้ไหม (GET เบาๆ 1 ครั้ง ก่อนแตะราคาจริง) ──
@@ -282,11 +306,17 @@ function extractRateIdsForRoom(html, roomTypeId, ratePlanId) {
   return ids;
 }
 
-// ── แจ้งเตือนเมื่อ session หมดอายุ (LINE DM หา admin เท่านั้น, main OA → backup OA) ──
+// ── แจ้งเตือนเมื่อ session หมดอายุ ──
 function notifySessionExpired(ageStr) {
-  const props = PropertiesService.getScriptProperties();
   const ageLine = ageStr ? ('\nอายุ session: ' + ageStr) : '';
-  const message = '⚠️ LH session หมดอายุ — ราคาไม่ได้อัปเดตเข้า Little Hotelier กรุณา login ใหม่แล้ว sync cookie' + ageLine;
+  notifyAdmin_('⚠️ LH session หมดอายุ — ราคาไม่ได้อัปเดตเข้า Little Hotelier กรุณา login ใหม่แล้ว sync cookie' + ageLine);
+}
+
+// ── แจ้งเตือน admin แบบทั่วไป (LINE main OA → backup OA → email fallback) ──
+// เดิมมีแค่ path นี้สำหรับ session หมดอายุอย่างเดียว และถ้า LINE ทั้ง 2 OA ส่งไม่ได้
+// (token หมดอายุ/ถูก revoke) ก็จะแค่ log ไว้เฉยๆ ไม่มีใครรู้เลย — เพิ่ม email fallback กันเคสนี้
+function notifyAdmin_(message) {
+  const props = PropertiesService.getScriptProperties();
 
   const oaConfigs = [
     { token: props.getProperty('LINE_CHANNEL_ACCESS_TOKEN'), userId: props.getProperty('ADMIN_USER_ID'), label: 'main' },
@@ -299,13 +329,25 @@ function notifySessionExpired(ageStr) {
       continue;
     }
     if (sendLinePush_(oa.token, oa.userId, message)) {
-      Logger.log(`✅ แจ้งเตือน session หมดอายุ สำเร็จผ่าน OA (${oa.label})`);
+      Logger.log(`✅ แจ้งเตือนสำเร็จผ่าน OA (${oa.label})`);
       return;
     }
     Logger.log(`⚠️ ส่งผ่าน OA (${oa.label}) ไม่สำเร็จ ลอง OA ถัดไป...`);
   }
 
-  Logger.log('❌ แจ้งเตือนไม่สำเร็จทั้ง main และ backup OA — ไม่มีทางแจ้ง Nathan ได้เลยรอบนี้');
+  // ── LINE ทั้ง 2 OA ส่งไม่ได้ — fallback เป็นอีเมลหา script owner (ไม่พึ่ง token ภายนอก) ──
+  try {
+    const ownerEmail = props.getProperty('NOTIFY_FALLBACK_EMAIL') || Session.getEffectiveUser().getEmail();
+    if (ownerEmail) {
+      MailApp.sendEmail(ownerEmail, '⚠️ LH Rate Automation — แจ้งเตือน (LINE ส่งไม่ได้)', message);
+      Logger.log(`✅ แจ้งเตือนสำรองผ่านอีเมลสำเร็จ (${ownerEmail})`);
+      return;
+    }
+  } catch (e) {
+    Logger.log('❌ ส่งอีเมลสำรองก็ไม่สำเร็จ: ' + e);
+  }
+
+  Logger.log('❌ แจ้งเตือนไม่สำเร็จทั้ง LINE (main+backup) และอีเมล — ไม่มีทางแจ้ง Nathan ได้เลยรอบนี้');
 }
 
 // ── ส่ง LINE push message ไปหา userId เดียว ──

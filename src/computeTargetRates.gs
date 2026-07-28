@@ -199,7 +199,18 @@ function getWeekOccupancy(roomType, date, bookedNights) {
 }
 
 // ── Main entry point — รันทุกคืนผ่าน time-based trigger ──
+// หมายเหตุ: ห่อด้วย try/catch เพราะเดิมถ้า error (เช่น เปลี่ยนชื่อ header ใน Bookings sheet)
+// จะไม่มีการแจ้งเตือนใดๆ เลย — และ pushRatesToLH ที่รันต่อ 20 นาทีให้หลังก็จะเจอ Target_Rates ว่าง/เก่า
 function computeTargetRates() {
+  try {
+    computeTargetRates_();
+  } catch (err) {
+    Logger.log('❌ computeTargetRates ล้มเหลว: ' + err);
+    notifyAdmin_('⚠️ คำนวณ Target Rate ล้มเหลว — sheet "Target_Rates" จะไม่ถูกอัปเดตคืนนี้ (rate push ที่ตามมาจะข้ามหรือใช้ราคาเก่า)\n' + err);
+  }
+}
+
+function computeTargetRates_() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   let sheet = ss.getSheetByName('Target_Rates');
   if (!sheet) {
