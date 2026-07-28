@@ -225,7 +225,7 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
 
       if (currentRate === targetRate) return; // ไม่เปลี่ยน ไม่ต้องนับ/แก้
 
-      diffs.push({ date: dateStr, roomType, currentRate, targetRate });
+      diffs.push({ date: dateStr, roomType, currentRate, targetRate, fieldName });
       Logger.log(`  ${roomType} ${dateStr}: ${currentRate} → ${targetRate}`);
 
       if (dryRunOverride) return; // diff-only mode: อย่าแตะ fieldMap/POST
@@ -262,13 +262,36 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
     throw new Error(`POST ล้มเหลว status ${postResp.getResponseCode()}`);
   }
 
-  // ── เช็คเนื้อหา response จริง — status code 2xx/3xx ไม่ได้แปลว่าราคาถูกบันทึกจริงเสมอไป ──
-  // (เจอเคส: LH เพิ่ม security-code gate แล้ว POST โดน redirect ไปหน้า verify code แทน
-  //  แต่ response ยัง 200 ปกติ ทำให้ script คิดว่าสำเร็จทั้งที่ราคาไม่เปลี่ยนเลย)
-  const postHtml = postResp.getContentText();
-  const securityGateHit = /security verification required|generate security code/i.test(postHtml);
-  if (securityGateHit) {
-    const msg = `หน้า ${startDateStr}: POST โดน redirect ไปหน้า "Security verification required" — ราคาไม่ถูกบันทึกจริง แม้ status จะดูปกติ (ต้องกด Generate Security Code + กรอกรหัสในเบราว์เซอร์ก่อน แล้ว sync cookie ใหม่)`;
+  // ── ยืนยันผลจริง — status code 2xx/3xx ไม่ได้แปลว่าราคาถูกบันทึกจริงเสมอไป ──
+  // (เจอเคสจริง: POST รายงานสำเร็จ แต่ราคาใน LH ไม่เปลี่ยนเลย ไม่รู้สาเหตุแน่ชัด)
+  // วิธีที่แม่นสุด: GET หน้าเดิมซ้ำ แล้วเทียบราคาที่ persisted จริงกับ target ตรงๆ
+  // แทนที่จะเดาจาก keyword ในหน้า HTML ซึ่งไม่น่าเชื่อถือ
+  Utilities.sleep(800); // เผื่อเวลาให้ LH เขียนลง DB เสร็จก่อน re-GET
+  const verifyResp = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { Cookie: `_littlehotelier_session=${cookie}` },
+    muteHttpExceptions: true,
+  });
+  const verifyHtml = verifyResp.getContentText();
+  const notPersisted = [];
+
+  if (verifyResp.getResponseCode() !== 200 || verifyHtml.indexOf('rate_plan_dates') === -1) {
+    // GET ยืนยันเองพังไม่ได้แปลว่า POST ล้มเหลว แต่เตือนไว้เพราะ verify ไม่ได้จริงๆ
+    Logger.log(`⚠️ หน้า ${startDateStr}: verify-GET หลัง POST โหลดไม่สำเร็จ — ยืนยันผลจริงไม่ได้ (POST เองสถานะปกติ)`);
+  } else {
+    const verifyFields = {};
+    parseFormFields(verifyHtml).forEach(([name, value]) => { verifyFields[name] = value; });
+    diffs.forEach(d => {
+      const persistedVal = verifyFields[d.fieldName];
+      const persistedRate = persistedVal ? Math.round(Number(persistedVal)) : null;
+      if (persistedRate !== d.targetRate) {
+        notPersisted.push(`${d.roomType} ${d.date}: ตั้งใจ ${d.targetRate} แต่ LH ยังโชว์ ${persistedRate}`);
+      }
+    });
+  }
+
+  if (notPersisted.length > 0) {
+    const msg = `หน้า ${startDateStr}: POST รายงานสำเร็จ แต่ verify-GET เจอ ${notPersisted.length} ช่องที่ราคาไม่ถูกบันทึกจริง:\n` + notPersisted.slice(0, 10).join('\n');
     Logger.log(`❌ ${msg}`);
     throw new Error(msg);
   }
