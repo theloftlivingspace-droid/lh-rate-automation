@@ -64,6 +64,15 @@ function getOccMult(occPct) {
   return rule.mult;
 }
 
+// ── Promo: ลดราคาโดยรวม -10% ชั่วคราว ถึงสิ้นเดือน (ตั้ง 20 ก.ค. 2026) ──
+const PROMO_DISC_PCT = 10;
+const PROMO_END_DATE = new Date(2026, 6, 31); // 31 ก.ค. 2026 (month index 6 = July)
+function getPromoMult(date) {
+  const d = new Date(date); d.setHours(0,0,0,0);
+  const end = new Date(PROMO_END_DATE); end.setHours(0,0,0,0);
+  return d <= end ? 1 - (PROMO_DISC_PCT / 100) : 1.0;
+}
+
 // ── Lead time discount ──
 const LEAD_TIME_RULES = [
   { minDays: 75, discPct: 22 },
@@ -86,8 +95,9 @@ function calcRate(roomType, date, occPct, daysAhead) {
   const seasonMult = SEASON_MULT[season];
   const occMult = getOccMult(occPct);
   const leadMult = getLeadMult(daysAhead);
+  const promoMult = getPromoMult(date);
 
-  let price = cfg.base * dowMult * seasonMult * occMult * leadMult;
+  let price = cfg.base * dowMult * seasonMult * occMult * leadMult * promoMult;
   price = Math.round(price / 50) * 50;
 
   const floor = Math.round((cfg.min * 1.1) / 50) * 50;
@@ -191,7 +201,18 @@ function getWeekOccupancy(roomType, date, bookedNights) {
 }
 
 // ── Main entry point — รันทุกคืนผ่าน time-based trigger ──
+// หมายเหตุ: ห่อด้วย try/catch เพราะเดิมถ้า error (เช่น เปลี่ยนชื่อ header ใน Bookings sheet)
+// จะไม่มีการแจ้งเตือนใดๆ เลย — และ pushRatesToLH ที่รันต่อ 20 นาทีให้หลังก็จะเจอ Target_Rates ว่าง/เก่า
 function computeTargetRates() {
+  try {
+    computeTargetRates_();
+  } catch (err) {
+    Logger.log('❌ computeTargetRates ล้มเหลว: ' + err);
+    notifyAdmin_('⚠️ คำนวณ Target Rate ล้มเหลว — sheet "Target_Rates" จะไม่ถูกอัปเดตคืนนี้ (rate push ที่ตามมาจะข้ามหรือใช้ราคาเก่า)\n' + err);
+  }
+}
+
+function computeTargetRates_() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   let sheet = ss.getSheetByName('Target_Rates');
   if (!sheet) {

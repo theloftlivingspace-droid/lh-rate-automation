@@ -33,10 +33,30 @@ const ROOM_LH_MAP = {
 const PAGE_SIZE_DAYS = 14; // Little Hotelier แสดง 14 วันต่อหน้า
 
 // ── Main entry point ──
+// หมายเหตุ: ห่อด้วย try/catch ชั้นนอก เพราะเดิมถ้า error ที่ไม่ใช่ session-expired
+// (เช่น exception ตอนอ่าน sheet, network error ตอน checkSessionValid_) จะไม่มีการแจ้งเตือนเลย
 function pushRatesToLH() {
+  try {
+    pushRatesToLH_();
+  } catch (err) {
+    Logger.log('❌ pushRatesToLH ล้มเหลวทั้งฟังก์ชัน (uncaught): ' + err);
+    notifyAdmin_('⚠️ Rate push ล้มเหลว (unexpected error)\nราคาอาจไม่ได้อัปเดตเข้า Little Hotelier\n' + err);
+  }
+}
+
+function pushRatesToLH_() {
   const cookie = PropertiesService.getScriptProperties().getProperty('LH_SESSION_COOKIE');
   if (!cookie) {
     Logger.log('❌ ไม่พบ LH_SESSION_COOKIE ใน Script Properties — ตั้งค่าก่อนรัน');
+    notifyAdmin_('⚠️ Rate push ไม่ทำงาน — ไม่พบ LH_SESSION_COOKIE ใน Script Properties');
+    return;
+  }
+
+  // ── เช็ค session ก่อนแตะราคาจริงแม้แต่หน้าเดียว ──
+  if (!checkSessionValid_(cookie)) {
+    const ageStr = getSessionAgeStr_();
+    Logger.log('❌ Session หมดอายุ (ตรวจพบก่อนเริ่มส่งราคา) — หยุดทันที ยังไม่แตะราคาใดๆ');
+    notifySessionExpired(ageStr);
     return;
   }
 
@@ -44,6 +64,7 @@ function pushRatesToLH() {
   const dates = Object.keys(targets).sort();
   if (dates.length === 0) {
     Logger.log('ไม่มีข้อมูลใน Target_Rates — รัน computeTargetRates() ก่อน');
+    notifyAdmin_('⚠️ Rate push ข้าม — sheet "Target_Rates" ว่างเปล่า (computeTargetRates() อาจยังไม่รัน หรือรันแล้ว error)');
     return;
   }
 
@@ -54,6 +75,8 @@ function pushRatesToLH() {
   const numPages = Math.ceil(totalDays / PAGE_SIZE_DAYS);
 
   let successPages = 0, failPages = 0, totalUpdated = 0;
+  const pageErrors = [];
+  const allExtractionFailures = [];
 
   for (let p = 0; p < numPages; p++) {
     const pageStart = new Date(today);
@@ -63,10 +86,7 @@ function pushRatesToLH() {
     try {
       const result = pushOnePage(startDateStr, targets, cookie);
       if (result.sessionExpired) {
-        const setAt = PropertiesService.getScriptProperties().getProperty('LH_SESSION_SET_AT');
-        const ageStr = setAt
-          ? Math.round((Date.now() - new Date(setAt).getTime()) / 3600000) + ' ชั่วโมง (ตั้งไว้เมื่อ ' + setAt + ')'
-          : 'ไม่ทราบ (ไม่มีบันทึกเวลา — sync ผ่าน SessionSync webapp ครั้งหน้าจะเริ่มบันทึกให้)';
+        const ageStr = getSessionAgeStr_();
         Logger.log('❌ Session หมดอายุ — อายุ session: ' + ageStr + ' — หยุดทำงานทันที ต้อง login + MFA ใหม่แล้วอัปเดต LH_SESSION_COOKIE');
         notifySessionExpired(ageStr);
         failPages++;
@@ -74,9 +94,13 @@ function pushRatesToLH() {
       }
       successPages++;
       totalUpdated += result.updatedCount;
+      if (result.extractionFailures && result.extractionFailures.length > 0) {
+        allExtractionFailures.push(...result.extractionFailures);
+      }
       Logger.log(`✅ หน้า ${startDateStr}: อัปเดต ${result.updatedCount} ช่อง (dry_run=${DRY_RUN})`);
     } catch (err) {
       Logger.log(`❌ หน้า ${startDateStr} error: ${err}`);
+      pageErrors.push(`${startDateStr}: ${err}`);
       failPages++;
     }
 
@@ -84,6 +108,49 @@ function pushRatesToLH() {
   }
 
   Logger.log(`สรุป: สำเร็จ ${successPages} หน้า, ล้มเหลว ${failPages} หน้า, อัปเดตรวม ${totalUpdated} ช่อง`);
+
+  // ── แจ้งเตือนถ้ามีหน้าล้มเหลวที่ไม่ใช่ session-expired (เดิมไม่มีการแจ้งเตือนส่วนนี้เลย) ──
+  if (pageErrors.length > 0) {
+    notifyAdmin_(
+      `⚠️ Rate push มีบางหน้าล้มเหลว (${failPages}/${numPages} หน้า)\n` +
+      `สำเร็จ ${successPages} หน้า, อัปเดตรวม ${totalUpdated} ช่อง\n` +
+      pageErrors.slice(0, 5).join('\n')
+    );
+  }
+
+  // ── แจ้งเตือนถ้าหา rate IDs ไม่เจอ (เดิมแค่ log — ห้องนั้นจะค้างราคาเก่าถาวรโดยไม่มีใครรู้) ──
+  if (allExtractionFailures.length > 0) {
+    notifyAdmin_(
+      `⚠️ Rate push หาราคาบางห้องใน LH ไม่เจอ (HTML โครงสร้างอาจเปลี่ยน) — ห้องเหล่านี้จะไม่ถูกอัปเดต:\n` +
+      allExtractionFailures.slice(0, 8).join('\n')
+    );
+  }
+}
+
+// ── ตรวจสอบว่า session ยังใช้ได้ไหม (GET เบาๆ 1 ครั้ง ก่อนแตะราคาจริง) ──
+function checkSessionValid_(cookie) {
+  const todayStr = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=${todayStr}&viewable_fields=detailed`;
+  try {
+    const resp = UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: { Cookie: `_littlehotelier_session=${cookie}` },
+      muteHttpExceptions: true,
+    });
+    const html = resp.getContentText();
+    return resp.getResponseCode() === 200 && html.indexOf('rate_plan_dates') !== -1;
+  } catch (e) {
+    Logger.log('checkSessionValid_ error: ' + e);
+    return false;
+  }
+}
+
+// ── คำนวณอายุ session สำหรับข้อความแจ้งเตือน ──
+function getSessionAgeStr_() {
+  const setAt = PropertiesService.getScriptProperties().getProperty('LH_SESSION_SET_AT');
+  return setAt
+    ? Math.round((Date.now() - new Date(setAt).getTime()) / 3600000) + ' ชั่วโมง (ตั้งไว้เมื่อ ' + setAt + ')'
+    : 'ไม่ทราบ (ไม่มีบันทึกเวลา — sync ผ่าน SessionSync webapp ครั้งหน้าจะเริ่มบันทึกให้)';
 }
 
 // ── อ่าน Target_Rates sheet ──
@@ -106,7 +173,8 @@ function readTargetRates() {
 }
 
 // ── ประมวลผล 1 หน้า (14 วัน) ──
-function pushOnePage(startDateStr, targets, cookie) {
+// dryRunOverride: true = ไม่ POST เด็ดขาด (ใช้กับ diffRatesVsLH) ไม่ขึ้นกับ DRY_RUN const
+function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
   const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=${startDateStr}&viewable_fields=detailed`;
   const resp = UrlFetchApp.fetch(url, {
     method: 'get',
@@ -116,7 +184,7 @@ function pushOnePage(startDateStr, targets, cookie) {
 
   const html = resp.getContentText();
   if (resp.getResponseCode() !== 200 || html.indexOf('rate_plan_dates') === -1) {
-    return { sessionExpired: true, updatedCount: 0 };
+    return { sessionExpired: true, updatedCount: 0, diffs: [], extractionFailures: [] };
   }
 
   const authToken = extractAuthToken(html);
@@ -134,12 +202,16 @@ function pushOnePage(startDateStr, targets, cookie) {
   }
 
   let updatedCount = 0;
+  const diffs = [];
+  const extractionFailures = [];
 
   Object.keys(ROOM_LH_MAP).forEach(roomType => {
     const { roomTypeId, ratePlanId } = ROOM_LH_MAP[roomType];
     const rateIds = extractRateIdsForRoom(html, roomTypeId, ratePlanId); // 14 ID เรียงตามวัน
     if (!rateIds || rateIds.length !== PAGE_SIZE_DAYS) {
-      Logger.log(`⚠️ ${roomType}: หา rate IDs ไม่ครบ 14 ช่อง (ได้ ${rateIds ? rateIds.length : 0}) — ข้าม`);
+      const msg = `${roomType} หน้า ${startDateStr}: หา rate IDs ไม่ครบ 14 ช่อง (ได้ ${rateIds ? rateIds.length : 0})`;
+      Logger.log(`⚠️ ${msg} — ข้าม (ราคาห้องนี้จะไม่ถูกอัปเดตในหน้านี้เลย)`);
+      extractionFailures.push(msg);
       return;
     }
 
@@ -153,23 +225,36 @@ function pushOnePage(startDateStr, targets, cookie) {
 
       if (currentRate === targetRate) return; // ไม่เปลี่ยน ไม่ต้องนับ/แก้
 
+      diffs.push({ date: dateStr, roomType, currentRate, targetRate, fieldName });
       Logger.log(`  ${roomType} ${dateStr}: ${currentRate} → ${targetRate}`);
+
+      if (dryRunOverride) return; // diff-only mode: อย่าแตะ fieldMap/POST
+
       fieldMap[fieldName] = String(targetRate);
       updatedCount++;
     });
   });
 
+  if (dryRunOverride) {
+    return { sessionExpired: false, updatedCount: diffs.length, diffs, extractionFailures };
+  }
+
   if (updatedCount === 0) {
     Logger.log(`  (ไม่มีราคาเปลี่ยนแปลงในหน้า ${startDateStr})`);
-    return { sessionExpired: false, updatedCount: 0 };
+    return { sessionExpired: false, updatedCount: 0, diffs, extractionFailures };
   }
 
   if (DRY_RUN) {
-    return { sessionExpired: false, updatedCount };
+    return { sessionExpired: false, updatedCount, diffs, extractionFailures };
   }
 
   // POST กลับ (รวม authenticity_token ล่าสุดจากหน้านี้)
   fieldMap['authenticity_token'] = authToken;
+
+  const sentFieldCount = Object.keys(fieldMap).length;
+  const parsedFieldCount = fields.length;
+  Logger.log(`  📤 หน้า ${startDateStr}: ส่ง ${sentFieldCount} fields (parse ได้จากฟอร์มเดิม ${parsedFieldCount} fields), authenticity_token length=${authToken ? authToken.length : 0}`);
+
   const postResp = UrlFetchApp.fetch(`${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory`, {
     method: 'post',
     headers: { Cookie: `_littlehotelier_session=${cookie}` },
@@ -178,11 +263,56 @@ function pushOnePage(startDateStr, targets, cookie) {
     muteHttpExceptions: true,
   });
 
-  if (postResp.getResponseCode() >= 400) {
-    throw new Error(`POST ล้มเหลว status ${postResp.getResponseCode()}`);
+  const postCode = postResp.getResponseCode();
+  const postHtml = postResp.getContentText();
+  const postHeaders = postResp.getAllHeaders();
+  const flashMatch = postHtml.match(/class="[^"]*(?:flash|alert|error)[^"]*"[^>]*>([^<]{1,150})/i);
+  Logger.log(
+    `  📥 POST response หน้า ${startDateStr}: status=${postCode}, bodyLength=${postHtml.length}, ` +
+    `flash/error message="${flashMatch ? flashMatch[1].trim() : '(ไม่เจอ)'}"` +
+    (postHeaders['x-request-id'] ? `, x-request-id=${postHeaders['x-request-id']}` : '')
+  );
+  Logger.log(`  📄 body preview: ${postHtml.substring(0, 300).replace(/\s+/g, ' ')}`);
+
+  if (postCode >= 400) {
+    throw new Error(`POST ล้มเหลว status ${postCode}`);
   }
 
-  return { sessionExpired: false, updatedCount };
+  // ── ยืนยันผลจริง — status code 2xx/3xx ไม่ได้แปลว่าราคาถูกบันทึกจริงเสมอไป ──
+  // (เจอเคสจริง: POST รายงานสำเร็จ แต่ราคาใน LH ไม่เปลี่ยนเลย ไม่รู้สาเหตุแน่ชัด)
+  // วิธีที่แม่นสุด: GET หน้าเดิมซ้ำ แล้วเทียบราคาที่ persisted จริงกับ target ตรงๆ
+  // แทนที่จะเดาจาก keyword ในหน้า HTML ซึ่งไม่น่าเชื่อถือ
+  Utilities.sleep(800); // เผื่อเวลาให้ LH เขียนลง DB เสร็จก่อน re-GET
+  const verifyResp = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { Cookie: `_littlehotelier_session=${cookie}` },
+    muteHttpExceptions: true,
+  });
+  const verifyHtml = verifyResp.getContentText();
+  const notPersisted = [];
+
+  if (verifyResp.getResponseCode() !== 200 || verifyHtml.indexOf('rate_plan_dates') === -1) {
+    // GET ยืนยันเองพังไม่ได้แปลว่า POST ล้มเหลว แต่เตือนไว้เพราะ verify ไม่ได้จริงๆ
+    Logger.log(`⚠️ หน้า ${startDateStr}: verify-GET หลัง POST โหลดไม่สำเร็จ — ยืนยันผลจริงไม่ได้ (POST เองสถานะปกติ)`);
+  } else {
+    const verifyFields = {};
+    parseFormFields(verifyHtml).forEach(([name, value]) => { verifyFields[name] = value; });
+    diffs.forEach(d => {
+      const persistedVal = verifyFields[d.fieldName];
+      const persistedRate = persistedVal ? Math.round(Number(persistedVal)) : null;
+      if (persistedRate !== d.targetRate) {
+        notPersisted.push(`${d.roomType} ${d.date}: ตั้งใจ ${d.targetRate} แต่ LH ยังโชว์ ${persistedRate}`);
+      }
+    });
+  }
+
+  if (notPersisted.length > 0) {
+    const msg = `หน้า ${startDateStr}: POST รายงานสำเร็จ แต่ verify-GET เจอ ${notPersisted.length} ช่องที่ราคาไม่ถูกบันทึกจริง:\n` + notPersisted.slice(0, 10).join('\n');
+    Logger.log(`❌ ${msg}`);
+    throw new Error(msg);
+  }
+
+  return { sessionExpired: false, updatedCount, diffs, extractionFailures };
 }
 
 // ── ดึง authenticity_token จาก HTML ──
@@ -252,22 +382,69 @@ function extractRateIdsForRoom(html, roomTypeId, ratePlanId) {
 }
 
 // ── แจ้งเตือนเมื่อ session หมดอายุ ──
-// ใช้ endpoint /api/send-admin-alert ของ hotel-line-bot ที่มีอยู่แล้ว (ถ้าต้องการ)
 function notifySessionExpired(ageStr) {
-  const webhookUrl = PropertiesService.getScriptProperties().getProperty('ADMIN_ALERT_WEBHOOK');
-  if (!webhookUrl) return;
   const ageLine = ageStr ? ('\nอายุ session: ' + ageStr) : '';
+  notifyAdmin_('⚠️ LH session หมดอายุ — ราคาไม่ได้อัปเดตเข้า Little Hotelier กรุณา login ใหม่แล้ว sync cookie' + ageLine);
+}
+
+// ── แจ้งเตือน admin แบบทั่วไป (LINE main OA → backup OA → email fallback) ──
+// เดิมมีแค่ path นี้สำหรับ session หมดอายุอย่างเดียว และถ้า LINE ทั้ง 2 OA ส่งไม่ได้
+// (token หมดอายุ/ถูก revoke) ก็จะแค่ log ไว้เฉยๆ ไม่มีใครรู้เลย — เพิ่ม email fallback กันเคสนี้
+function notifyAdmin_(message) {
+  const props = PropertiesService.getScriptProperties();
+
+  const oaConfigs = [
+    { token: props.getProperty('LINE_CHANNEL_ACCESS_TOKEN'), userId: props.getProperty('ADMIN_USER_ID'), label: 'main' },
+    { token: props.getProperty('LINE_CHANNEL_ACCESS_TOKEN_BACKUP'), userId: props.getProperty('ADMIN_USER_ID_BACKUP'), label: 'backup' },
+  ];
+
+  for (const oa of oaConfigs) {
+    if (!oa.token || !oa.userId) {
+      Logger.log(`⚠️ ข้าม OA (${oa.label}) — ไม่มี token หรือ userId ใน Script Properties`);
+      continue;
+    }
+    if (sendLinePush_(oa.token, oa.userId, message)) {
+      Logger.log(`✅ แจ้งเตือนสำเร็จผ่าน OA (${oa.label})`);
+      return;
+    }
+    Logger.log(`⚠️ ส่งผ่าน OA (${oa.label}) ไม่สำเร็จ ลอง OA ถัดไป...`);
+  }
+
+  // ── LINE ทั้ง 2 OA ส่งไม่ได้ — fallback เป็นอีเมลหา script owner (ไม่พึ่ง token ภายนอก) ──
   try {
-    UrlFetchApp.fetch(webhookUrl, {
+    const ownerEmail = props.getProperty('NOTIFY_FALLBACK_EMAIL') || Session.getEffectiveUser().getEmail();
+    if (ownerEmail) {
+      MailApp.sendEmail(ownerEmail, '⚠️ LH Rate Automation — แจ้งเตือน (LINE ส่งไม่ได้)', message);
+      Logger.log(`✅ แจ้งเตือนสำรองผ่านอีเมลสำเร็จ (${ownerEmail})`);
+      return;
+    }
+  } catch (e) {
+    Logger.log('❌ ส่งอีเมลสำรองก็ไม่สำเร็จ: ' + e);
+  }
+
+  Logger.log('❌ แจ้งเตือนไม่สำเร็จทั้ง LINE (main+backup) และอีเมล — ไม่มีทางแจ้ง Nathan ได้เลยรอบนี้');
+}
+
+// ── ส่ง LINE push message ไปหา userId เดียว ──
+function sendLinePush_(token, userId, message) {
+  try {
+    const resp = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
       method: 'post',
       contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + token },
       payload: JSON.stringify({
-        message: '⚠️ LH session หมดอายุ — ราคาไม่ได้อัปเดตเข้า Little Hotelier กรุณา login ใหม่แล้ว sync cookie' + ageLine,
+        to: userId,
+        messages: [{ type: 'text', text: message }],
       }),
       muteHttpExceptions: true,
     });
+    const code = resp.getResponseCode();
+    if (code === 200) return true;
+    Logger.log(`LINE push status ${code}: ${resp.getContentText()}`);
+    return false;
   } catch (e) {
-    Logger.log('แจ้งเตือนไม่สำเร็จ: ' + e);
+    Logger.log('LINE push error: ' + e);
+    return false;
   }
 }
 
@@ -284,4 +461,83 @@ function setupNightlyPushTrigger() {
     .inTimezone('Asia/Bangkok')
     .create();
   Logger.log('ตั้ง trigger เรียบร้อย: pushRatesToLH ทุกคืน ~02:20');
+}
+
+// ── Diagnostic: เทียบราคาใน Target_Rates กับราคาที่ LH แสดงจริงตอนนี้ โดยไม่แก้อะไรเลย ──
+// เขียนผลลง sheet tab "Rate_Diff_Check" (Date | RoomType | LH_Current | Target | CheckedAt)
+// ใช้ตอนสงสัยว่า "rate ใน LH ไม่ตรงกับใน sheet" — รันแล้วเปิด tab นี้ดูได้เลยว่าห้อง/วันไหนต่างกันจริง
+function diffRatesVsLH() {
+  const cookie = PropertiesService.getScriptProperties().getProperty('LH_SESSION_COOKIE');
+  if (!cookie) {
+    Logger.log('❌ ไม่พบ LH_SESSION_COOKIE');
+    notifyAdmin_('⚠️ diffRatesVsLH ทำไม่ได้ — ไม่พบ LH_SESSION_COOKIE');
+    return;
+  }
+  if (!checkSessionValid_(cookie)) {
+    notifySessionExpired(getSessionAgeStr_());
+    return;
+  }
+
+  const targets = readTargetRates();
+  const dates = Object.keys(targets).sort();
+  if (dates.length === 0) {
+    Logger.log('ไม่มีข้อมูลใน Target_Rates');
+    return;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const lastDate = new Date(dates[dates.length - 1] + 'T00:00:00');
+  const totalDays = Math.round((lastDate - today) / 86400000) + 1;
+  const numPages = Math.ceil(totalDays / PAGE_SIZE_DAYS);
+
+  const allDiffs = [];
+  const allExtractionFailures = [];
+
+  for (let p = 0; p < numPages; p++) {
+    const pageStart = new Date(today);
+    pageStart.setDate(today.getDate() + p * PAGE_SIZE_DAYS);
+    const startDateStr = Utilities.formatDate(pageStart, 'Asia/Bangkok', 'yyyy-MM-dd');
+    try {
+      const result = pushOnePage(startDateStr, targets, cookie, /* dryRunOverride */ true);
+      if (result.sessionExpired) {
+        notifySessionExpired(getSessionAgeStr_());
+        break;
+      }
+      allDiffs.push(...result.diffs);
+      allExtractionFailures.push(...result.extractionFailures);
+    } catch (err) {
+      Logger.log(`❌ diffRatesVsLH หน้า ${startDateStr} error: ${err}`);
+    }
+    Utilities.sleep(1500);
+  }
+
+  const ss = SpreadsheetApp.openById(LH_SHEET_ID);
+  let sheet = ss.getSheetByName('Rate_Diff_Check');
+  if (!sheet) sheet = ss.insertSheet('Rate_Diff_Check');
+  sheet.clearContents();
+  sheet.appendRow(['Date', 'RoomType', 'LH_Current', 'Target_Rates', 'Diff', 'CheckedAt']);
+
+  const now = new Date().toISOString();
+  if (allDiffs.length > 0) {
+    const rows = allDiffs.map(d => [d.date, d.roomType, d.currentRate, d.targetRate, d.targetRate - (d.currentRate || 0), now]);
+    sheet.getRange(2, 1, rows.length, 6).setValues(rows);
+  }
+  if (allExtractionFailures.length > 0) {
+    sheet.appendRow(['', '', '', '', '', '']);
+    sheet.appendRow(['⚠️ หา rate IDs ไม่เจอ (ห้อง/หน้าเหล่านี้เทียบไม่ได้เลย):', '', '', '', '', '']);
+    allExtractionFailures.forEach(msg => sheet.appendRow([msg, '', '', '', '', '']));
+  }
+
+  Logger.log(`สรุป diffRatesVsLH: พบ ${allDiffs.length} ช่องที่ไม่ตรงกัน, extraction failures ${allExtractionFailures.length} รายการ — ดูรายละเอียดที่ sheet "Rate_Diff_Check"`);
+
+  if (allDiffs.length === 0 && allExtractionFailures.length === 0) {
+    notifyAdmin_('✅ diffRatesVsLH: เช็คแล้ว ราคาทุกห้อง/วันที่ตรงกับ Target_Rates ทั้งหมด');
+  } else {
+    notifyAdmin_(
+      `🔍 diffRatesVsLH: พบไม่ตรงกัน ${allDiffs.length} ช่อง` +
+      (allExtractionFailures.length > 0 ? `, หา rate ID ไม่เจอ ${allExtractionFailures.length} รายการ` : '') +
+      `\nรายละเอียดดูที่ sheet tab "Rate_Diff_Check"`
+    );
+  }
 }

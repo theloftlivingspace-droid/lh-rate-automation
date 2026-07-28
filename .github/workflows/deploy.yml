@@ -38,6 +38,16 @@ jobs:
           echo "PUSH_EXIT_CODE=$?" >> $GITHUB_ENV
           cat push.log
 
+      - name: Deploy new version to existing Web App (updates /exec URL in place)
+        if: env.PUSH_EXIT_CODE == '0'
+        env:
+          DEPLOYMENT_ID: AKfycbx_z1v7FEqmthTKfZPoLsyqdIc4NJENXpfsZ315dDLzdIHwznSsOQqnG1UxkyqhOCk
+        run: |
+          set +e
+          clasp deploy -i "$DEPLOYMENT_ID" -d "auto-deploy $(date -u +%Y-%m-%dT%H:%M:%SZ) (${GITHUB_SHA::7})" > deploy.log 2>&1
+          echo "DEPLOY_EXIT_CODE=$?" >> $GITHUB_ENV
+          cat deploy.log
+
       - name: Commit debug log on failure
         if: env.PUSH_EXIT_CODE != '0'
         run: |
@@ -52,4 +62,8 @@ jobs:
 
       - name: Fail if push failed
         if: env.PUSH_EXIT_CODE != '0'
+        run: exit 1
+
+      - name: Fail if deploy failed
+        if: env.DEPLOY_EXIT_CODE != '0'
         run: exit 1
