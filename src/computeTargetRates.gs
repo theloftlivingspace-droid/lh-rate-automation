@@ -47,22 +47,35 @@ function getSeasonForDate(date) {
 }
 
 // ── Occupancy multiplier ──
-// อัปเดต 29 ก.ค. 2026: ทำ tier ต่ำ (occ น้อย) ให้ชันขึ้น ลดแรงกว่าเดิมตอนห้องว่างเยอะ
-// tier กลาง-สูง (75%+) คงเดิม ไม่กระทบช่วงห้องเต็ม
-const OCC_RULES = [
-  { max: 10,  mult: 0.45 },
-  { max: 20,  mult: 0.55 },
-  { max: 35,  mult: 0.68 },
-  { max: 50,  mult: 0.80 },
-  { max: 65,  mult: 0.90 },
-  { max: 75,  mult: 1.00 },
-  { max: 85,  mult: 1.10 },
-  { max: 92,  mult: 1.20 },
-  { max: 101, mult: 1.35 },
+// อัปเดต 8 ส.ค. 2026: เปลี่ยนจาก step function เป็นเส้นต่อเนื่อง (interpolation) เพราะห้องที่มี 1-2 ห้อง
+// occupancy คำนวณจากหน้าต่าง 7 คืน (getWeekOccupancy) ทำให้ occ กระโดดทีละ ~7-14 จุดต่อการจอง 1 ครั้ง
+// ถ้าใช้ step function จุดกระโดดของ occ อาจข้าม tier boundary 2 เส้นพร้อมกัน ราคาเลยกระโดดแรงเกินไป
+// เส้นต่อเนื่องทำให้ราคาขยับตามสัดส่วน occ จริง ไม่ถูกขยายจากตำแหน่ง tier พอดี
+// และลดความชันของทั้งเส้นลงครึ่งหนึ่งด้วย (บีบเข้าหา 1.0) กัน over-react ตอน occ เปลี่ยนเร็ว
+const OCC_ANCHORS = [
+  [0,   0.73],
+  [10,  0.73],
+  [20,  0.78],
+  [35,  0.84],
+  [50,  0.90],
+  [65,  0.95],
+  [75,  1.00],
+  [85,  1.05],
+  [92,  1.10],
+  [100, 1.18],
 ];
 function getOccMult(occPct) {
-  const rule = OCC_RULES.find(r => occPct <= r.max) || OCC_RULES[OCC_RULES.length - 1];
-  return rule.mult;
+  const pts = OCC_ANCHORS;
+  if (occPct <= pts[0][0]) return pts[0][1];
+  if (occPct >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, y0] = pts[i];
+    const [x1, y1] = pts[i + 1];
+    if (occPct >= x0 && occPct <= x1) {
+      return y0 + (y1 - y0) * (occPct - x0) / (x1 - x0);
+    }
+  }
+  return 1.0;
 }
 
 // ── Promo: ลดราคาโดยรวม -10% ชั่วคราว ถึงสิ้นเดือน (ตั้ง 20 ก.ค. 2026) ──
