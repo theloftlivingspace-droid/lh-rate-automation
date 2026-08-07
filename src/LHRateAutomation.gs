@@ -15,7 +15,7 @@
  * ---------------------------------------------------------
  */
 
-const LH_SHEET_ID = '1XbTJLhecql_HNqyE80Hc6h30A2_elIxliudF4e6Rlz0';
+const LH_SHEET_ID = '1gjYsvg7YZR7hvjfsQPIy78TJhK49RKIDFQn90bREus8'; // ไฟล์ output แยก (ไม่ใช่ Master) — อ่าน Target_Rates + เขียน Rate_Diff_Check ที่นี่ (แยก 7 ส.ค. 2026)
 const LH_PROPERTY_ID = '14501';
 const LH_BASE_URL = 'https://apac.littlehotelier.com';
 const DRY_RUN = false; // ✅ เปิดใช้งานจริงหลังทดสอบ dry run ผ่านแล้ว (2026-07-13)
