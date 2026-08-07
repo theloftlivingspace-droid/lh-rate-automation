@@ -315,7 +315,47 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
   return { sessionExpired: false, updatedCount, diffs, extractionFailures };
 }
 
-// ── ดึง authenticity_token จาก HTML ──
+// ── DEBUG: dump HTML ดิบรอบๆ anchor ของห้องที่ระบุ ไว้ตรวจโครงสร้างจริงตอนสงสัยว่า extraction ผิด ──
+// วิธีใช้: เปลี่ยน DEBUG_ROOM/DEBUG_RATE_PLAN ด้านล่างแล้วรันฟังก์ชันนี้ตรงๆ จาก editor
+function debugDumpRateRow() {
+  const cookie = PropertiesService.getScriptProperties().getProperty('LH_SESSION_COOKIE');
+  const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=2026-08-07&viewable_fields=detailed`;
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { Cookie: `_littlehotelier_session=${cookie}` },
+    muteHttpExceptions: true,
+  });
+  const html = resp.getContentText();
+
+  Object.keys(ROOM_LH_MAP).forEach(roomType => {
+    const { roomTypeId, ratePlanId } = ROOM_LH_MAP[roomType];
+    const anchor = `room_types/${roomTypeId}/rate_plans/${ratePlanId}/edit`;
+    const anchorIdx = html.indexOf(anchor);
+    if (anchorIdx === -1) {
+      Logger.log(`${roomType}: anchor "${anchor}" ไม่เจอเลยในหน้า HTML!`);
+      return;
+    }
+    // dump 200 ตัวก่อน anchor ถึง 900 ตัวหลัง anchor (ครอบคลุมถึง <tr class='rate basic'> แถวแรก)
+    const snippet = html.substring(Math.max(0, anchorIdx - 200), anchorIdx + 900);
+    Logger.log(`── ${roomType} (roomTypeId=${roomTypeId}, ratePlanId=${ratePlanId}) ──\n${snippet}\n`);
+  });
+
+  // เผื่อไว้: หาว่ามี anchor ห้องที่ ROOM_LH_MAP ไม่รู้จักไหม (rate plan ที่ 6 ที่สงสัย)
+  const allAnchors = [];
+  const anchorRegex = /room_types\/(\d+)\/rate_plans\/(\d+)\/edit/g;
+  let m;
+  const seen = {};
+  while ((m = anchorRegex.exec(html)) !== null) {
+    const key = `${m[1]}/${m[2]}`;
+    if (!seen[key]) {
+      seen[key] = true;
+      allAnchors.push(key);
+    }
+  }
+  Logger.log(`anchor ทั้งหมดที่เจอในหน้า (roomTypeId/ratePlanId) ${allAnchors.length} ตัว: ${allAnchors.join(', ')}`);
+  Logger.log(`ROOM_LH_MAP รู้จัก ${Object.keys(ROOM_LH_MAP).length} ห้อง: ${Object.keys(ROOM_LH_MAP).map(r => `${ROOM_LH_MAP[r].roomTypeId}/${ROOM_LH_MAP[r].ratePlanId}`).join(', ')}`);
+}
+
 function extractAuthToken(html) {
   const m = html.match(/name="authenticity_token"\s+value="([^"]+)"/);
   if (!m) throw new Error('หา authenticity_token ไม่เจอ — โครงสร้างหน้าอาจเปลี่ยน');
