@@ -226,7 +226,7 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
       if (currentRate === targetRate) return; // ไม่เปลี่ยน ไม่ต้องนับ/แก้
 
       diffs.push({ date: dateStr, roomType, currentRate, targetRate, fieldName });
-      Logger.log(`  ${roomType} ${dateStr}: ${currentRate} → ${targetRate}`);
+      Logger.log(`  ${roomType} ${dateStr}: ${currentRate} → ${targetRate} [rateId=${rateIds[idx]}, roomTypeId=${roomTypeId}, ratePlanId=${ratePlanId}]`);
 
       if (dryRunOverride) return; // diff-only mode: อย่าแตะ fieldMap/POST
 
@@ -368,6 +368,13 @@ function extractRateIdsForRoom(html, roomTypeId, ratePlanId) {
   const anchor = `room_types/${roomTypeId}/rate_plans/${ratePlanId}/edit`;
   const anchorIdx = html.indexOf(anchor);
   if (anchorIdx === -1) return null;
+
+  // ── เช็คว่ามี anchor นี้ซ้ำมากกว่า 1 จุดไหม (เช่น มี rate plan อื่นซ้อนสำหรับห้องเดียวกัน) ──
+  // ถ้ามี ต้องรู้ไว้ เพราะ .indexOf() ข้างล่างจะเอาจุดแรกเสมอ อาจไม่ใช่แถวราคาที่ถูกต้อง
+  const secondOccurrence = html.indexOf(anchor, anchorIdx + anchor.length);
+  if (secondOccurrence !== -1) {
+    Logger.log(`⚠️ anchor "${anchor}" เจอซ้ำมากกว่า 1 จุดในหน้า HTML — ใช้จุดแรกอยู่ (ตำแหน่ง ${anchorIdx}, ${secondOccurrence}, ...) อาจหยิบแถวราคาผิด`);
+  }
 
   const rateRowIdx = html.indexOf("class='rate basic'", anchorIdx);
   if (rateRowIdx === -1) return null;
