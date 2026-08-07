@@ -214,13 +214,11 @@ function computeTargetRates() {
 
 function computeTargetRates_() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  let sheet = ss.getSheetByName('Target_Rates');
-  if (!sheet) {
-    sheet = ss.insertSheet('Target_Rates');
-  }
-  sheet.clearContents();
-  sheet.appendRow(['Date', 'RoomType', 'Rate', 'Occ%', 'DaysAhead', 'UpdatedAt']);
 
+  // ── 1) คำนวณให้เสร็จทั้งหมดก่อน (ยังไม่แตะ sheet) ──
+  // เดิม: sheet.clearContents() รันก่อน แล้วค่อยคำนวณ — ถ้า computeAdvanceOccupancy()
+  // throw กลางทาง (เช่น หา column ใน Bookings sheet ไม่เจอ) จะเหลือ Target_Rates ว่างเปล่า
+  // ค้างอยู่แบบนั้นทุกคืน เพราะ error เกิดหลังเคลียร์ไปแล้ว — สลับลำดับกันไม่ให้เกิดซ้ำ
   const bookedNights = computeAdvanceOccupancy();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -246,7 +244,17 @@ function computeTargetRates_() {
     });
   }
 
-  // เขียนทีเดียวทั้งก้อน (เร็วกว่า appendRow ทีละแถว)
+  if (rows.length === 0) {
+    throw new Error('คำนวณได้ 0 แถว — ไม่เขียนทับ Target_Rates เดิม (ป้องกันชีตว่าง)');
+  }
+
+  // ── 2) คำนวณสำเร็จแล้วเท่านั้นถึงจะเคลียร์+เขียนทับ sheet ──
+  let sheet = ss.getSheetByName('Target_Rates');
+  if (!sheet) {
+    sheet = ss.insertSheet('Target_Rates');
+  }
+  sheet.clearContents();
+  sheet.appendRow(['Date', 'RoomType', 'Rate', 'Occ%', 'DaysAhead', 'UpdatedAt']);
   sheet.getRange(2, 1, rows.length, 6).setValues(rows);
   Logger.log('เขียน Target_Rates สำเร็จ: ' + rows.length + ' แถว');
 }
