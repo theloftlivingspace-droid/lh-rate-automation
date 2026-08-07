@@ -11,7 +11,8 @@
  * ---------------------------------------------------------
  */
 
-const SHEET_ID = '1XbTJLhecql_HNqyE80Hc6h30A2_elIxliudF4e6Rlz0';
+const SHEET_ID = '1XbTJLhecql_HNqyE80Hc6h30A2_elIxliudF4e6Rlz0'; // Master sheet — อ่าน Bookings เท่านั้น
+const OUTPUT_SHEET_ID = '1gjYsvg7YZR7hvjfsQPIy78TJhK49RKIDFQn90bREus8'; // ไฟล์แยก — เขียน Target_Rates (แยกออกจาก Master 7 ส.ค. 2026 กัน SpreadsheetApp ช้า/timeout จากไฟล์ Master ที่โตขึ้นเรื่อยๆ)
 const DAYS_AHEAD_TO_COMPUTE = 90;
 
 // ── ค่าคงที่ห้องพัก (จาก ROOMS_DATA ใน loft-pricing dashboard) ──
@@ -213,8 +214,6 @@ function computeTargetRates() {
 }
 
 function computeTargetRates_() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-
   // ── 1) คำนวณให้เสร็จทั้งหมดก่อน (ยังไม่แตะ sheet) ──
   // เดิม: sheet.clearContents() รันก่อน แล้วค่อยคำนวณ — ถ้า computeAdvanceOccupancy()
   // throw กลางทาง (เช่น หา column ใน Bookings sheet ไม่เจอ) จะเหลือ Target_Rates ว่างเปล่า
@@ -248,7 +247,8 @@ function computeTargetRates_() {
     throw new Error('คำนวณได้ 0 แถว — ไม่เขียนทับ Target_Rates เดิม (ป้องกันชีตว่าง)');
   }
 
-  // ── 2) คำนวณสำเร็จแล้วเท่านั้นถึงจะเคลียร์+เขียนทับ sheet ──
+  // ── 2) คำนวณสำเร็จแล้วเท่านั้นถึงจะเคลียร์+เขียนทับ sheet (ไฟล์แยก ไม่ใช่ Master) ──
+  const ss = SpreadsheetApp.openById(OUTPUT_SHEET_ID);
   let sheet = ss.getSheetByName('Target_Rates');
   if (!sheet) {
     sheet = ss.insertSheet('Target_Rates');
