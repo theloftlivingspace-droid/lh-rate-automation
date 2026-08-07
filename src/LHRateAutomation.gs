@@ -279,31 +279,54 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
   }
 
   // ── ยืนยันผลจริง — status code 2xx/3xx ไม่ได้แปลว่าราคาถูกบันทึกจริงเสมอไป ──
-  // (เจอเคสจริง: POST รายงานสำเร็จ แต่ราคาใน LH ไม่เปลี่ยนเลย ไม่รู้สาเหตุแน่ชัด)
-  // วิธีที่แม่นสุด: GET หน้าเดิมซ้ำ แล้วเทียบราคาที่ persisted จริงกับ target ตรงๆ
-  // แทนที่จะเดาจาก keyword ในหน้า HTML ซึ่งไม่น่าเชื่อถือ
-  Utilities.sleep(800); // เผื่อเวลาให้ LH เขียนลง DB เสร็จก่อน re-GET
-  const verifyResp = UrlFetchApp.fetch(url, {
+  // (เจอเคสจริง: POST รายงานสำเร็จ แต่ราคาใน LH ไม่เปลี่ยนเลย ไม่รู้สาเหตุแน่ชัด —
+  //  สงสัยว่า backend ใหม่ของ LH [extranet-beef/GraphQL] อาจประมวลผลแบบ async/queue
+  //  ทำให้ verify-GET เร็วเกินไปอ่านค่าเก่าที่ยังไม่ commit จริง จึงเพิ่ม delay + retry ครั้งเดียว)
+  Utilities.sleep(3000); // เผื่อเวลาให้ LH เขียนลง DB เสร็จก่อน re-GET (เพิ่มจาก 800ms)
+  let verifyResp = UrlFetchApp.fetch(url, {
     method: 'get',
     headers: { Cookie: `_littlehotelier_session=${cookie}` },
     muteHttpExceptions: true,
   });
-  const verifyHtml = verifyResp.getContentText();
-  const notPersisted = [];
+  let verifyHtml = verifyResp.getContentText();
+  let notPersisted = [];
+
+  const checkPersisted_ = (html) => {
+    const result = [];
+    const fields = {};
+    parseFormFields(html).forEach(([name, value]) => { fields[name] = value; });
+    diffs.forEach(d => {
+      const actual = parseFloat(fields[d.fieldName]);
+      if (actual !== d.targetRate) {
+        result.push(`${d.roomType} ${d.date}: ตั้งใจ ${d.targetRate} แต่ LH ยังโชว์ ${actual}`);
+      }
+    });
+    return result;
+  };
 
   if (verifyResp.getResponseCode() !== 200 || verifyHtml.indexOf('rate_plan_dates') === -1) {
     // GET ยืนยันเองพังไม่ได้แปลว่า POST ล้มเหลว แต่เตือนไว้เพราะ verify ไม่ได้จริงๆ
     Logger.log(`⚠️ หน้า ${startDateStr}: verify-GET หลัง POST โหลดไม่สำเร็จ — ยืนยันผลจริงไม่ได้ (POST เองสถานะปกติ)`);
   } else {
-    const verifyFields = {};
-    parseFormFields(verifyHtml).forEach(([name, value]) => { verifyFields[name] = value; });
-    diffs.forEach(d => {
-      const persistedVal = verifyFields[d.fieldName];
-      const persistedRate = persistedVal ? Math.round(Number(persistedVal)) : null;
-      if (persistedRate !== d.targetRate) {
-        notPersisted.push(`${d.roomType} ${d.date}: ตั้งใจ ${d.targetRate} แต่ LH ยังโชว์ ${persistedRate}`);
+    notPersisted = checkPersisted_(verifyHtml);
+
+    if (notPersisted.length > 0) {
+      // ── retry ครั้งเดียว: เผื่อ LH ยังเขียน DB ไม่เสร็จตอน verify ครั้งแรก ──
+      Logger.log(`  ⏳ verify-GET รอบแรกเจอ ${notPersisted.length} ช่องไม่ตรง — รอ 5 วินาทีแล้วเช็คซ้ำอีกรอบก่อนสรุปว่าล้มเหลวจริง`);
+      Utilities.sleep(5000);
+      const verifyResp2 = UrlFetchApp.fetch(url, {
+        method: 'get',
+        headers: { Cookie: `_littlehotelier_session=${cookie}` },
+        muteHttpExceptions: true,
+      });
+      if (verifyResp2.getResponseCode() === 200) {
+        const notPersisted2 = checkPersisted_(verifyResp2.getContentText());
+        if (notPersisted2.length < notPersisted.length) {
+          Logger.log(`  ✅ เช็คซ้ำแล้วดีขึ้น: เหลือไม่ persist ${notPersisted2.length}/${notPersisted.length} ช่อง (แปลว่า LH เขียนช้าจริง ไม่ใช่ POST ผิด)`);
+        }
+        notPersisted = notPersisted2;
       }
-    });
+    }
   }
 
   if (notPersisted.length > 0) {
