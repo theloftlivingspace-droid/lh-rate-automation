@@ -17,8 +17,8 @@ const DAYS_AHEAD_TO_COMPUTE = 90;
 
 // ── ค่าคงที่ห้องพัก (จาก ROOMS_DATA ใน loft-pricing dashboard) ──
 const ROOM_CONFIG = {
-  Luxury:   { base: 624, min: 450, max: 1800, count: 1 },
-  Retro:    { base: 623, min: 400, max: 1500, count: 1 },
+  Luxury:   { base: 780, min: 450, max: 1800, count: 1 },
+  Retro:    { base: 740, min: 400, max: 1500, count: 1 },
   Allure:   { base: 653, min: 500, max: 1400, count: 2 },
   Elegance: { base: 627, min: 360, max: 1300, count: 2 },
   Legacy:   { base: 635, min: 360, max: 1300, count: 2 },
