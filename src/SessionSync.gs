@@ -49,7 +49,20 @@ function doPost(e) {
     props.setProperty('LH_SESSION_SET_AT', new Date().toISOString());
 
     Logger.log('✅ LH_SESSION_COOKIE อัปเดตผ่าน SessionSync webapp เมื่อ ' + new Date().toISOString());
-    return respond({ ok: true, updatedAt: new Date().toISOString() });
+
+    // กดปุ่มเดียวทำทุกขั้นตอน: sync cookie เสร็จ → ต่อด้วย computeTargetRates() + pushRatesToLH() อัตโนมัติ
+    // ใช้ one-off trigger เหมือน RemoteTrigger.gs กัน doPost timeout (computeThenPush ใช้เวลาหลายสิบวินาที)
+    try {
+      ScriptApp.newTrigger('computeThenPush')
+        .timeBased()
+        .after(1000)
+        .create();
+      Logger.log('✅ SessionSync: คิว computeThenPush (computeTargetRates + pushRatesToLH) ต่อจาก cookie sync สำเร็จ');
+    } catch (queueErr) {
+      Logger.log('⚠️ SessionSync: sync cookie สำเร็จ แต่คิว computeThenPush ไม่สำเร็จ — ' + queueErr);
+    }
+
+    return respond({ ok: true, updatedAt: new Date().toISOString(), queued: 'computeThenPush' });
   } catch (err) {
     return respond({ ok: false, error: String(err) });
   }
