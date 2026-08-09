@@ -75,3 +75,28 @@ function computeThenPush() {
   computeTargetRates();
   pushRatesToLH();
 }
+
+// ── ตั้ง trigger คืนละ 1 ตัว รัน computeThenPush (แทน 2 trigger แยกของ compute/push) ──
+// อัปเดต 9 ส.ค. 2026: เดิมใช้ trigger แยก 2 ตัว (computeTargetRates atHour(2) ไม่ได้ตั้ง
+// nearMinute เลยสุ่มเวลาได้ทั้งชั่วโมง / pushRatesToLH atHour(2).nearMinute(20) ซึ่งจริงๆ
+// คือ "ใกล้นาที 20 ± ~15 นาที" ไม่ใช่ 02:20 ตายตัว) — ผลคือ push อาจสุ่มเวลาไปตกช่วงที่
+// compute ยังรันไม่เสร็จ (compute ใช้เวลาได้ถึง 6 นาที/timeout) ทำให้ push อ่าน Target_Rates
+// ระหว่างที่ compute กำลัง clearContents()+เขียนทับอยู่ — เสี่ยง push ข้อมูลว่าง/ไม่ครบ
+// รวมเป็น trigger เดียวที่รัน compute แล้วต่อ push แบบ sequential ในฟังก์ชันเดียวกัน
+// การันตีลำดับ 100% ไม่มี race จาก trigger timing อีกต่อไป
+function setupNightlyComputeAndPushTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    const fn = t.getHandlerFunction();
+    if (fn === 'computeTargetRates' || fn === 'pushRatesToLH' || fn === 'computeThenPush') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('computeThenPush')
+    .timeBased()
+    .everyDays(1)
+    .atHour(2)
+    .nearMinute(0)
+    .inTimezone('Asia/Bangkok')
+    .create();
+  Logger.log('ตั้ง trigger เรียบร้อย: computeThenPush ทุกคืน ~02:00 (ลบ trigger แยกของ compute/push เดิมทิ้งแล้ว)');
+}
