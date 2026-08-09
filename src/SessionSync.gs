@@ -50,26 +50,16 @@ function doPost(e) {
 
     Logger.log('✅ LH_SESSION_COOKIE อัปเดตผ่าน SessionSync webapp เมื่อ ' + new Date().toISOString());
 
-    // กดปุ่มเดียวทำทุกขั้นตอน: sync cookie เสร็จ → ต่อด้วย computeTargetRates() + pushRatesToLH() อัตโนมัติ
-    // ใช้ one-off trigger เหมือน RemoteTrigger.gs กัน doPost timeout (computeThenPush ใช้เวลาหลายสิบวินาที)
-    //
-    // อัปเดต 9 ส.ค. 2026: เพิ่มลบ trigger ค้างของ handler เดิมก่อนสร้างใหม่เสมอ — เดิมไม่มีการลบ
-    // ทำให้ trigger สะสมทุกครั้งที่กด sync (โดยเฉพาะถ้ารอบก่อนหน้า error ก่อนที่ Apps Script
-    // จะ auto-remove one-off trigger ให้) จนชนลิมิต 20 trigger/สคริปต์ แล้ว newTrigger() ถัดไป throw
-    try {
-      ScriptApp.getProjectTriggers().forEach(t => {
-        if (t.getHandlerFunction() === 'computeThenPush') ScriptApp.deleteTrigger(t);
-      });
-      ScriptApp.newTrigger('computeThenPush')
-        .timeBased()
-        .after(1000)
-        .create();
-      Logger.log('✅ SessionSync: คิว computeThenPush (computeTargetRates + pushRatesToLH) ต่อจาก cookie sync สำเร็จ');
-    } catch (queueErr) {
-      Logger.log('⚠️ SessionSync: sync cookie สำเร็จ แต่คิว computeThenPush ไม่สำเร็จ — ' + queueErr);
-    }
+    // อัปเดต 9 ส.ค. 2026: เอาการ auto-queue computeThenPush ออกจาก doPost แล้ว
+    // เดิม doPost คิว computeThenPush เองทุกครั้งที่ sync cookie สำเร็จ (ตั้งใจให้กดปุ่มเดียวจบ)
+    // แต่ตอนนี้หน้า dashboard มีปุ่ม "Sync + Push Rate" ที่เรียก doPost (sync) แล้วต่อด้วย
+    // doGet?action=pushRates (RemoteTrigger.gs) แยกอีกที — ผลคือคลิกเดียวคิวงานซ้ำ 2 ชุด
+    // (computeThenPush จาก doPost + pushRatesToLH จาก doGet) รันซ้อนกันจริง ทั้งคู่แตะ
+    // Target_Rates sheet และ push เข้า LH extranet พร้อมกัน เสี่ยง race/double-submit
+    // ตอนนี้ doPost ทำแค่ sync cookie อย่างเดียว ฝั่งที่เรียก (ปุ่ม/extension) เป็นคนสั่ง
+    // push ทีหลังแบบชัดเจนผ่าน doGet เพียงทางเดียว ไม่มี auto-chain ซ้อนอีกต่อไป
 
-    return respond({ ok: true, updatedAt: new Date().toISOString(), queued: 'computeThenPush' });
+    return respond({ ok: true, updatedAt: new Date().toISOString() });
   } catch (err) {
     return respond({ ok: false, error: String(err) });
   }
