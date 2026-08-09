@@ -17,12 +17,12 @@ const DAYS_AHEAD_TO_COMPUTE = 90;
 
 // ── ค่าคงที่ห้องพัก (จาก ROOMS_DATA ใน loft-pricing dashboard) ──
 const ROOM_CONFIG = {
-  Luxury:   { base: 780, min: 450, max: 1800, count: 1 },
-  Retro:    { base: 740, min: 400, max: 1500, count: 1 },
-  Allure:   { base: 653, min: 500, max: 1400, count: 2 },
-  Elegance: { base: 627, min: 360, max: 1300, count: 2 },
-  Legacy:   { base: 635, min: 360, max: 1300, count: 2 },
-  Radiance: { base: 613, min: 380, max: 1350, count: 2 },
+  Luxury:   { base: 867, min: 450, max: 1800, count: 1 },
+  Retro:    { base: 865, min: 400, max: 1500, count: 1 },
+  Allure:   { base: 907, min: 500, max: 1400, count: 2 },
+  Elegance: { base: 871, min: 360, max: 1300, count: 2 },
+  Legacy:   { base: 882, min: 360, max: 1300, count: 2 },
+  Radiance: { base: 851, min: 380, max: 1350, count: 2 },
 };
 
 // ── DOW multiplier ──
@@ -51,11 +51,18 @@ function getSeasonForDate(date) {
 // occupancy คำนวณจากหน้าต่าง 7 คืน (getWeekOccupancy) ทำให้ occ กระโดดทีละ ~7-14 จุดต่อการจอง 1 ครั้ง
 // ถ้าใช้ step function จุดกระโดดของ occ อาจข้าม tier boundary 2 เส้นพร้อมกัน ราคาเลยกระโดดแรงเกินไป
 // เส้นต่อเนื่องทำให้ราคาขยับตามสัดส่วน occ จริง ไม่ถูกขยายจากตำแหน่ง tier พอดี
-// ช่วง 0.70-0.95 คำนวณจาก floor/base ratio ของแต่ละห้อง (0.63-0.84) กัน curve จมอยู่ใต้ floor
-// ตลอดช่วง occ ต่ำ-กลาง (แบบที่ 0.25-0.72 เจอปัญหา) และคุมปลายบนไม่ให้ high/peak season พุ่งเกินไป
+// และลดความชันของทั้งเส้นลงครึ่งหนึ่งด้วย (บีบเข้าหา 1.0) กัน over-react ตอน occ เปลี่ยนเร็ว
 const OCC_ANCHORS = [
-  [0,   0.70],
-  [100, 0.95],
+  [0,   0.45],
+  [10,  0.45],
+  [20,  0.78],
+  [35,  0.84],
+  [50,  0.90],
+  [65,  0.95],
+  [75,  1.00],
+  [85,  1.05],
+  [92,  1.10],
+  [100, 1.18],
 ];
 function getOccMult(occPct) {
   const pts = OCC_ANCHORS;
