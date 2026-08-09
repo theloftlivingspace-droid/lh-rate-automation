@@ -48,6 +48,11 @@ function doGet(e) {
 
   try {
     // one-off trigger รันภายใน ~1 วินาที — กัน doGet timeout ตอนงานจริงใช้เวลานาน
+    // อัปเดต 9 ส.ค. 2026: ลบ trigger ค้างของ handler เดิมก่อนสร้างใหม่เสมอ (เหมือน SessionSync.gs)
+    // กัน trigger สะสมจนชนลิมิต 20 trigger/สคริปต์
+    ScriptApp.getProjectTriggers().forEach(t => {
+      if (t.getHandlerFunction() === handlerFn) ScriptApp.deleteTrigger(t);
+    });
     ScriptApp.newTrigger(handlerFn)
       .timeBased()
       .after(1000)

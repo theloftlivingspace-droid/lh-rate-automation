@@ -52,7 +52,14 @@ function doPost(e) {
 
     // กดปุ่มเดียวทำทุกขั้นตอน: sync cookie เสร็จ → ต่อด้วย computeTargetRates() + pushRatesToLH() อัตโนมัติ
     // ใช้ one-off trigger เหมือน RemoteTrigger.gs กัน doPost timeout (computeThenPush ใช้เวลาหลายสิบวินาที)
+    //
+    // อัปเดต 9 ส.ค. 2026: เพิ่มลบ trigger ค้างของ handler เดิมก่อนสร้างใหม่เสมอ — เดิมไม่มีการลบ
+    // ทำให้ trigger สะสมทุกครั้งที่กด sync (โดยเฉพาะถ้ารอบก่อนหน้า error ก่อนที่ Apps Script
+    // จะ auto-remove one-off trigger ให้) จนชนลิมิต 20 trigger/สคริปต์ แล้ว newTrigger() ถัดไป throw
     try {
+      ScriptApp.getProjectTriggers().forEach(t => {
+        if (t.getHandlerFunction() === 'computeThenPush') ScriptApp.deleteTrigger(t);
+      });
       ScriptApp.newTrigger('computeThenPush')
         .timeBased()
         .after(1000)
