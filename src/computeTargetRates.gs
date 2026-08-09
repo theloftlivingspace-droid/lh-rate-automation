@@ -17,12 +17,12 @@ const DAYS_AHEAD_TO_COMPUTE = 90;
 
 // ── ค่าคงที่ห้องพัก (จาก ROOMS_DATA ใน loft-pricing dashboard) ──
 const ROOM_CONFIG = {
-  Luxury:   { base: 867, min: 450, max: 1800, count: 1 },
-  Retro:    { base: 865, min: 400, max: 1500, count: 1 },
-  Allure:   { base: 907, min: 500, max: 1400, count: 2 },
-  Elegance: { base: 871, min: 360, max: 1300, count: 2 },
-  Legacy:   { base: 882, min: 360, max: 1300, count: 2 },
-  Radiance: { base: 851, min: 380, max: 1350, count: 2 },
+  Luxury:   { base: 780, min: 450, max: 1800, count: 1 },
+  Retro:    { base: 740, min: 400, max: 1500, count: 1 },
+  Allure:   { base: 653, min: 500, max: 1400, count: 2 },
+  Elegance: { base: 627, min: 360, max: 1300, count: 2 },
+  Legacy:   { base: 635, min: 360, max: 1300, count: 2 },
+  Radiance: { base: 613, min: 380, max: 1350, count: 2 },
 };
 
 // ── DOW multiplier ──
@@ -51,18 +51,11 @@ function getSeasonForDate(date) {
 // occupancy คำนวณจากหน้าต่าง 7 คืน (getWeekOccupancy) ทำให้ occ กระโดดทีละ ~7-14 จุดต่อการจอง 1 ครั้ง
 // ถ้าใช้ step function จุดกระโดดของ occ อาจข้าม tier boundary 2 เส้นพร้อมกัน ราคาเลยกระโดดแรงเกินไป
 // เส้นต่อเนื่องทำให้ราคาขยับตามสัดส่วน occ จริง ไม่ถูกขยายจากตำแหน่ง tier พอดี
-// และลดความชันของทั้งเส้นลงครึ่งหนึ่งด้วย (บีบเข้าหา 1.0) กัน over-react ตอน occ เปลี่ยนเร็ว
+// ช่วง 0.70-0.95 คำนวณจาก floor/base ratio ของแต่ละห้อง (0.63-0.84) กัน curve จมอยู่ใต้ floor
+// ตลอดช่วง occ ต่ำ-กลาง (แบบที่ 0.25-0.72 เจอปัญหา) และคุมปลายบนไม่ให้ high/peak season พุ่งเกินไป
 const OCC_ANCHORS = [
-  [0,   0.45],
-  [10,  0.45],
-  [20,  0.78],
-  [35,  0.84],
-  [50,  0.90],
-  [65,  0.95],
-  [75,  1.00],
-  [85,  1.05],
-  [92,  1.10],
-  [100, 1.18],
+  [0,   0.70],
+  [100, 0.95],
 ];
 function getOccMult(occPct) {
   const pts = OCC_ANCHORS;
@@ -88,17 +81,29 @@ function getPromoMult(date) {
 }
 
 // ── Lead time discount ──
-const LEAD_TIME_RULES = [
-  { minDays: 75, discPct: 22 },
-  { minDays: 45, discPct: 15 },
-  { minDays: 28, discPct: 9 },
-  { minDays: 14, discPct: 4 },
-  { minDays: 7,  discPct: -6 },
-  { minDays: 0,  discPct: -18 },
+// อัปเดต 9 ส.ค. 2026: เปลี่ยนจาก step function เป็นเส้นต่อเนื่อง (interpolation) เหมือน occ mult
+// เดิม step function ทำให้ราคากระโดดแรงที่ขอบ 7/14/28/45/75 วัน (สูงสุด ~10-12 จุด% ในวันเดียว)
+// ค่า mult ที่ anchor แต่ละจุดเท่าเดิมทุกประการ เปลี่ยนแค่ระหว่างจุดให้ไล่ระดับแทนกระโดด
+const LEAD_TIME_ANCHORS = [
+  [0,  1.18],
+  [7,  1.06],
+  [14, 0.96],
+  [28, 0.91],
+  [45, 0.85],
+  [75, 0.78],
 ];
 function getLeadMult(daysAhead) {
-  const rule = LEAD_TIME_RULES.find(r => daysAhead >= r.minDays) || LEAD_TIME_RULES[LEAD_TIME_RULES.length - 1];
-  return 1 - (rule.discPct / 100);
+  const pts = LEAD_TIME_ANCHORS;
+  if (daysAhead <= pts[0][0]) return pts[0][1];
+  if (daysAhead >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, y0] = pts[i];
+    const [x1, y1] = pts[i + 1];
+    if (daysAhead >= x0 && daysAhead <= x1) {
+      return y0 + (y1 - y0) * (daysAhead - x0) / (x1 - x0);
+    }
+  }
+  return 1.0;
 }
 
 // ── คำนวณราคาสุดท้าย ──
@@ -195,18 +200,20 @@ function normalizeRoomType(raw) {
   return raw; // ไม่ match จะถูกข้ามใน ROOM_CONFIG check
 }
 
-// occupancy ของ "สัปดาห์" ที่ครอบคลุมวันที่กำหนด (Mon-Sun) เป็น %
+// occupancy ของหน้าต่าง 7 คืน "รอบวันที่กำหนด" (rolling window, ±3 วัน) เป็น %
+// อัปเดต 9 ส.ค. 2026: เดิมใช้สัปดาห์ปฏิทินตายตัว (จันทร์-อาทิตย์) ทำให้ occ% รีเซ็ตคำนวณใหม่
+// ทั้งก้อนทันทีที่ข้ามจากอาทิตย์ไปจันทร์ — ห้องที่มีแค่ 1 ห้อง (capacity 7 room-nights/สัปดาห์)
+// โดนหนักสุด เพราะการจอง 1-2 คืนหลุดจากหน้าต่างทำให้ occ กระโดด 15-30 จุดในคืนเดียว ราคาจึงกระโดดตาม
+// เปลี่ยนเป็นหน้าต่างเลื่อนตามวันที่ (rolling) แทน ทำให้ occ% ไล่ระดับต่อเนื่องวันต่อวัน ไม่มีขอบสัปดาห์ให้กระโดด
 function getWeekOccupancy(roomType, date, bookedNights) {
   const cfg = ROOM_CONFIG[roomType];
-  const dow = date.getDay(); // 0=Sun
-  const mondayOffset = dow === 0 ? -6 : 1 - dow;
-  const monday = new Date(date);
-  monday.setDate(date.getDate() + mondayOffset);
+  const windowStart = new Date(date);
+  windowStart.setDate(date.getDate() - 3); // ±3 วันรอบวันที่กำหนด = หน้าต่าง 7 วัน
 
   let nights = 0;
   for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
+    const d = new Date(windowStart);
+    d.setDate(windowStart.getDate() + i);
     const key = roomType + '_' + Utilities.formatDate(d, 'Asia/Bangkok', 'yyyy-MM-dd');
     nights += bookedNights[key] || 0;
   }
