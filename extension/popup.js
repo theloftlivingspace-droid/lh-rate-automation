@@ -1,9 +1,13 @@
-// ── ตั้งค่า 2 บรรทัดนี้ก่อนใช้งาน ──
-// WEB_APP_URL: ได้จากตอน deploy Apps Script เป็น Web App (Deploy > New deployment > Web app)
-//              ต้องลงท้ายด้วย /exec
-// SYNC_TOKEN:  ต้องตรงกับค่าที่ตั้งไว้ใน Script Properties -> SESSION_SYNC_TOKEN
+// ── ตั้งค่า 3 บรรทัดนี้ก่อนใช้งาน ──
+// WEB_APP_URL:         ได้จากตอน deploy Apps Script เป็น Web App (Deploy > New deployment > Web app)
+//                      ต้องลงท้ายด้วย /exec — ใช้ /exec เดียวกันทั้ง sync cookie (doPost) และ push rate (doGet)
+// SYNC_TOKEN:          ต้องตรงกับค่าที่ตั้งไว้ใน Script Properties -> SESSION_SYNC_TOKEN
+// REMOTE_TRIGGER_TOKEN: ต้องตรงกับค่าที่ตั้งไว้ใน Script Properties -> REMOTE_TRIGGER_TOKEN (ดูได้จาก
+//                      Apps Script editor > Project Settings > Script Properties) — เอาไว้สั่ง push rate
+//                      หลัง sync cookie สำเร็จ ต้องใส่ค่าจริงแทน "PASTE_REMOTE_TRIGGER_TOKEN_HERE" ก่อนใช้งาน
 const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx_z1v7FEqmthTKfZPoLsyqdIc4NJENXpfsZ315dDLzdIHwznSsOQqnG1UxkyqhOCk/exec";
 const SYNC_TOKEN = "KTxEAEYfhxYqlbVrKp-t00BkNSdqJ8iv92gO-3l8ut0";
+const REMOTE_TRIGGER_TOKEN = "Lft6801-rXk9pQ2vN7mZs4Tw8Ye3Jc5Hb1Fg0Dq";
 
 const btn = document.getElementById("syncBtn");
 const statusEl = document.getElementById("status");
@@ -38,10 +42,46 @@ btn.addEventListener("click", async () => {
 
     const data = await resp.json();
 
-    if (data.ok) {
-      setStatus("✅ Sync สำเร็จ! เวลา: " + new Date(data.updatedAt).toLocaleString("th-TH"));
-    } else {
-      setStatus("❌ ล้มเหลว: " + (data.error || "ไม่ทราบสาเหตุ"));
+    if (!data.ok) {
+      setStatus("❌ Sync ล้มเหลว: " + (data.error || "ไม่ทราบสาเหตุ"));
+      btn.disabled = false;
+      return;
+    }
+
+    const syncedAt = new Date(data.updatedAt).toLocaleString("th-TH");
+    setStatus("✅ Sync cookie สำเร็จ! เวลา: " + syncedAt + "\nกำลังสั่ง push rate เข้า LH...");
+
+    // ── ต่อด้วยสั่ง pushRatesToLH ทันที ผ่าน RemoteTrigger.gs (doGet) ──
+    if (REMOTE_TRIGGER_TOKEN === "PASTE_REMOTE_TRIGGER_TOKEN_HERE") {
+      setStatus(
+        "✅ Sync cookie สำเร็จ! เวลา: " + syncedAt +
+        "\n⚠️ ยังไม่ได้ตั้งค่า REMOTE_TRIGGER_TOKEN ใน popup.js จึงไม่ได้สั่ง push rate ให้อัตโนมัติ — sync cookie เฉยๆ ก่อน"
+      );
+      btn.disabled = false;
+      return;
+    }
+
+    try {
+      const pushUrl = `${WEB_APP_URL}?action=computeAndPush&token=${encodeURIComponent(REMOTE_TRIGGER_TOKEN)}`;
+      const pushResp = await fetch(pushUrl, { method: "GET" });
+      const pushData = await pushResp.json();
+
+      if (pushData.ok) {
+        setStatus(
+          "✅ Sync cookie สำเร็จ! เวลา: " + syncedAt +
+          "\n✅ สั่ง compute + push rate เข้าคิวแล้ว — รันภายใน ~1 นาที เช็คผลได้ทาง LINE (ถ้ามี error)"
+        );
+      } else {
+        setStatus(
+          "✅ Sync cookie สำเร็จ! เวลา: " + syncedAt +
+          "\n❌ สั่ง push rate ไม่สำเร็จ: " + (pushData.error || "ไม่ทราบสาเหตุ")
+        );
+      }
+    } catch (pushErr) {
+      setStatus(
+        "✅ Sync cookie สำเร็จ! เวลา: " + syncedAt +
+        "\n❌ เรียก push rate ไม่สำเร็จ: " + pushErr.message
+      );
     }
   } catch (err) {
     setStatus("❌ เกิดข้อผิดพลาด: " + err.message);
