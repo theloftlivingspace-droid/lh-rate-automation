@@ -379,6 +379,37 @@ function debugDumpRateRow() {
   Logger.log(`ROOM_LH_MAP รู้จัก ${Object.keys(ROOM_LH_MAP).length} ห้อง: ${Object.keys(ROOM_LH_MAP).map(r => `${ROOM_LH_MAP[r].roomTypeId}/${ROOM_LH_MAP[r].ratePlanId}`).join(', ')}`);
 }
 
+// ── DEBUG: dump "ทั้งตาราง" ของ rate_plan (ไม่ใช่แค่แถว rate) ของห้องที่ระบุ ──
+// ใช้ตอนสงสัยว่ามี field อื่นนอกจาก rate_plan_dates[ID][rate] ที่เกี่ยวข้อง (เช่น manual-override flag)
+// วิธีใช้: รันตรงจาก editor แล้วดู log — เทียบ Allure vs ห้องปกติ (Elegance) วันเดียวกัน
+function debugDumpFullRatePlanTable() {
+  const cookie = PropertiesService.getScriptProperties().getProperty('LH_SESSION_COOKIE');
+  const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=2026-08-17&viewable_fields=detailed`;
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { Cookie: `_littlehotelier_session=${cookie}` },
+    muteHttpExceptions: true,
+  });
+  const html = resp.getContentText();
+
+  ['Allure', 'Elegance'].forEach(roomType => {
+    const { roomTypeId, ratePlanId } = ROOM_LH_MAP[roomType];
+    const anchor = `room_types/${roomTypeId}/rate_plans/${ratePlanId}/edit`;
+    const anchorIdx = html.indexOf(anchor);
+    if (anchorIdx === -1) {
+      Logger.log(`${roomType}: anchor ไม่เจอ`);
+      return;
+    }
+    // หา <table class='rate_plan'> ที่ครอบ anchor นี้อยู่ แล้ว dump ทั้งตาราง (ไม่ใช่แค่แถว rate)
+    const tableStart = html.lastIndexOf("<table class='rate_plan'>", anchorIdx);
+    const tableEnd = html.indexOf('</table>', anchorIdx);
+    // มีตารางซ้อน (data ข้างใน rate_plan) เผื่อ indexOf </table> แรกไม่ใช่ตัวปิดจริง — หาให้ไกลพอ
+    const outerEnd = html.indexOf("</table>", html.indexOf("</table>", tableEnd) + 1);
+    const snippet = html.substring(tableStart, outerEnd + 8);
+    Logger.log(`══════ ${roomType} FULL rate_plan table (length ${snippet.length}) ══════\n${snippet}`);
+  });
+}
+
 function extractAuthToken(html) {
   const m = html.match(/name="authenticity_token"\s+value="([^"]+)"/);
   if (!m) throw new Error('หา authenticity_token ไม่เจอ — โครงสร้างหน้าอาจเปลี่ยน');
