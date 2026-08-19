@@ -36,11 +36,26 @@ const PAGE_SIZE_DAYS = 14; // Little Hotelier แสดง 14 วันต่อ
 // หมายเหตุ: ห่อด้วย try/catch ชั้นนอก เพราะเดิมถ้า error ที่ไม่ใช่ session-expired
 // (เช่น exception ตอนอ่าน sheet, network error ตอน checkSessionValid_) จะไม่มีการแจ้งเตือนเลย
 function pushRatesToLH() {
+  // ── กันชนกันเวลา trigger อัตโนมัติ (คืนละ 1 ครั้ง) กับ Chrome extension
+  // ที่กดสั่ง push มือ (ผ่าน computeThenPush ใน RemoteTrigger.gs) รันซ้อนกันพอดี ──
+  // ไม่มี lock มาก่อนเลย ถ้ารันซ้อน สองโปรเซสจะยิง POST/verify-GET ไปหน้าเดียวกันพร้อมกัน
+  // ทำให้ verify-GET ของตัวหนึ่งไปจับ state กลางคันของอีกตัว → เห็น "อัปเดตไม่ติด" ทั้งที่จริงๆ
+  // เขียนสำเร็จ แค่ verify อ่านผิดจังหวะ (ตรงกับ log 2026-08-19 ที่ล้มพร้อมกันหลายห้อง
+  // ด้วยค่าที่ไม่ตรงทั้ง target เดิมและใหม่ของรอบไหนเลย)
+  const lock = LockService.getScriptLock();
+  const gotLock = lock.tryLock(5000);
+  if (!gotLock) {
+    Logger.log('⏭️ pushRatesToLH ข้ามรอบนี้ — มีอีกโปรเซสกำลังรัน push อยู่แล้ว (รอ lock 5 วิไม่ได้)');
+    notifyAdmin_('⏭️ Rate push ข้ามรอบนี้ — มีการ push อีกตัวกำลังรันอยู่พอดี (ชนกัน) ลองสั่งใหม่อีกครั้งได้');
+    return;
+  }
   try {
     pushRatesToLH_();
   } catch (err) {
     Logger.log('❌ pushRatesToLH ล้มเหลวทั้งฟังก์ชัน (uncaught): ' + err);
     notifyAdmin_('⚠️ Rate push ล้มเหลว (unexpected error)\nราคาอาจไม่ได้อัปเดตเข้า Little Hotelier\n' + err);
+  } finally {
+    lock.releaseLock();
   }
 }
 
