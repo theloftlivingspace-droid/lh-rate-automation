@@ -32,6 +32,15 @@ const ROOM_LH_MAP = {
 
 const PAGE_SIZE_DAYS = 14; // Little Hotelier แสดง 14 วันต่อหน้า
 
+// ── Blackout dates: วันที่ตั้งราคาด้วยมือไว้ใน LH แล้ว ไม่ต้องการให้ automation พุชทับ ──
+// เพิ่ม/ลบวันที่ตรงนี้เมื่อมีการตั้งราคาพิเศษด้วยมือ (เทศกาล/อีเวนต์/โปรเฉพาะกิจ)
+// ค้นพบ 27 ส.ค. 2026: ช่วงลอยกระทง 2569 ตั้งราคามือไว้สูงกว่า target มาก (25-27 พ.ย. 2026)
+// ทำให้ POST รายงานสำเร็จแต่ verify-GET เจอราคาไม่เปลี่ยน → error แจ้งเตือนซ้ำทุกคืน
+// วันที่ในนี้จะถูกข้ามทั้งหมด ไม่แตะ ไม่ error ไม่แจ้งเตือน — ปล่อยราคาที่ตั้งมือไว้ตามเดิม
+const BLACKOUT_DATES = new Set([
+  '2026-11-25', '2026-11-26', '2026-11-27', // ลอยกระทง 2569
+]);
+
 // ── Main entry point ──
 // หมายเหตุ: ห่อด้วย try/catch ชั้นนอก เพราะเดิมถ้า error ที่ไม่ใช่ session-expired
 // (เช่น exception ตอนอ่าน sheet, network error ตอน checkSessionValid_) จะไม่มีการแจ้งเตือนเลย
@@ -231,6 +240,7 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
     }
 
     pageDates.forEach((dateStr, idx) => {
+      if (BLACKOUT_DATES.has(dateStr)) return; // ตั้งราคามือไว้แล้ว — ข้ามไม่แตะ ไม่นับ ไม่ error
       const targetRate = targets[dateStr] && targets[dateStr][roomType];
       if (targetRate === undefined) return;
 
