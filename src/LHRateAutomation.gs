@@ -357,7 +357,10 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
 // วิธีใช้: เปลี่ยน DEBUG_ROOM/DEBUG_RATE_PLAN ด้านล่างแล้วรันฟังก์ชันนี้ตรงๆ จาก editor
 function debugDumpRateRow() {
   const cookie = PropertiesService.getScriptProperties().getProperty('LH_SESSION_COOKIE');
-  const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=2026-08-07&viewable_fields=detailed`;
+  // 2026-08-27: ชี้ไปวันที่ 25 พ.ย. 2026 ชั่วคราว (แทน 2026-08-07 เดิม) เพื่อ debug เคส
+  // rate push ล้มเหลวเฉพาะวันนี้ — ราคาที่ LH โชว์สูงผิดปกติทุกห้องพร้อมกัน (สงสัย manual rate)
+  // page เริ่มต้นต้องเป็นวันที่ที่ 25 พ.ย. ตกอยู่ในช่วง 14 วันของมัน (pushOnePage หน้า 2026-11-19)
+  const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=2026-11-19&viewable_fields=detailed`;
   const resp = UrlFetchApp.fetch(url, {
     method: 'get',
     headers: { Cookie: `_littlehotelier_session=${cookie}` },
@@ -373,8 +376,14 @@ function debugDumpRateRow() {
       Logger.log(`${roomType}: anchor "${anchor}" ไม่เจอเลยในหน้า HTML!`);
       return;
     }
-    // dump 200 ตัวก่อน anchor ถึง 900 ตัวหลัง anchor (ครอบคลุมถึง <tr class='rate basic'> แถวแรก)
-    const snippet = html.substring(Math.max(0, anchorIdx - 200), anchorIdx + 900);
+    const secondOccurrence = html.indexOf(anchor, anchorIdx + anchor.length);
+    if (secondOccurrence !== -1) {
+      Logger.log(`⚠️ ${roomType}: anchor "${anchor}" เจอซ้ำมากกว่า 1 จุด! ตำแหน่ง ${anchorIdx} และ ${secondOccurrence}`);
+    }
+    // 2026-08-27: ขยายจาก 900 → 2200 ตัวหลัง anchor เพื่อครอบคลุมถึงวันที่ 7 ของหน้า
+    // (25 พ.ย. คือวันที่ 7 นับจาก start_date=2026-11-19 — แถว Rate เดิม dump แค่ 900 ตัว
+    // ไม่พอถึงคอลัมน์ที่ 7 ของแถวเดียวกัน)
+    const snippet = html.substring(Math.max(0, anchorIdx - 200), anchorIdx + 2200);
     Logger.log(`── ${roomType} (roomTypeId=${roomTypeId}, ratePlanId=${ratePlanId}) ──\n${snippet}\n`);
   });
 
