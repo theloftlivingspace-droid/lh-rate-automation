@@ -71,9 +71,9 @@ function getOccMult(occPct) {
   return 1.0;
 }
 
-// ── Promo: ลดราคาโดยรวม -10% ชั่วคราว ถึงสิ้นเดือน (ตั้ง 20 ก.ค. 2026) ──
+// ── Promo: ลดราคาโดยรวม -10% ชั่วคราว ถึงสิ้นเดือน (เปิดใหม่ 27 ส.ค. 2026 เดิมตั้งไว้ถึง 31 ก.ค. 2026) ──
 const PROMO_DISC_PCT = 10;
-const PROMO_END_DATE = new Date(2026, 6, 31); // 31 ก.ค. 2026 (month index 6 = July)
+const PROMO_END_DATE = new Date(2026, 8, 30); // 30 ก.ย. 2026 (month index 8 = September)
 function getPromoMult(date) {
   const d = new Date(date); d.setHours(0,0,0,0);
   const end = new Date(PROMO_END_DATE); end.setHours(0,0,0,0);
