@@ -34,13 +34,25 @@ function getDowMult(date) {
   return 1.0;
 }
 
+// ── วันพิเศษเพิ่มเติม (เทศกาลจันทรคติ/อีเวนต์) — ต้องอัปเดตวันที่ทุกปี เพราะไม่ตรงวันเดิม ──
+// เพิ่ม 27 ส.ค. 2026: พบราคาที่ตั้งมือใน LH สูงกว่าปกติมากช่วง 25-27 พ.ย. 2026 (หลังวันลอยกระทงจริง
+// 24 พ.ย. 2569) — เพิ่มเป็น peak ในสูตร ให้คำนวณราคาสูงขึ้นเองแทนการชนกับราคาที่ตั้งมือ
+// (คู่กับ BLACKOUT_DATES ใน LHRateAutomation.gs ที่กันไม่ให้ push ทับราคามือช่วงนี้อยู่แล้ว)
+const SPECIAL_PEAK_RANGES = [
+  { start: '2026-11-25', end: '2026-11-27' }, // ลอยกระทง 2569
+];
+function isSpecialPeakDate(date) {
+  const dStr = Utilities.formatDate(date, 'Asia/Bangkok', 'yyyy-MM-dd');
+  return SPECIAL_PEAK_RANGES.some(r => dStr >= r.start && dStr <= r.end);
+}
+
 // ── Season multiplier ──
 const SEASON_MULT = { low: 0.85, normal: 1.0, high: 1.25, peak: 1.5 };
 function getSeasonForDate(date) {
   const m = date.getMonth(), d = date.getDate();
   const songkran = m === 3 && d >= 13 && d <= 14;
   const newyear = (m === 11 && d >= 30) || (m === 0 && d <= 2);
-  if (songkran || newyear) return 'peak';
+  if (songkran || newyear || isSpecialPeakDate(date)) return 'peak';
   if (m >= 10 || m <= 1) return 'high';
   if (m >= 4 && m <= 8) return 'low';
   return 'normal';
