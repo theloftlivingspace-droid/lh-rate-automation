@@ -104,6 +104,18 @@ function getExtraPromoMult(date) {
   return (d >= start && d <= end) ? 1 - (EXTRA_PROMO_DISC_PCT / 100) : 1.0;
 }
 
+// ── Adjustment: ปรับราคาขึ้น +10% จากราคาปัจจุบัน (คูณทับทุก mult อื่นรวมโปรทั้งหมด) ถึงสิ้นเดือน ก.ย. 2026 ──
+// เพิ่ม 29 ส.ค. 2026 ตามคำขอ — ใช้กับทุกห้อง คูณต่อจาก promo/extraPromo (ไม่ใช่แทนที่)
+const ADJUSTMENT_PCT = 10;
+const ADJUSTMENT_START_DATE = new Date(2026, 7, 29); // 29 ส.ค. 2026
+const ADJUSTMENT_END_DATE = new Date(2026, 8, 30);   // 30 ก.ย. 2026
+function getAdjustmentMult(date) {
+  const d = new Date(date); d.setHours(0,0,0,0);
+  const start = new Date(ADJUSTMENT_START_DATE); start.setHours(0,0,0,0);
+  const end = new Date(ADJUSTMENT_END_DATE); end.setHours(0,0,0,0);
+  return (d >= start && d <= end) ? 1 + (ADJUSTMENT_PCT / 100) : 1.0;
+}
+
 // ── Lead time discount ──
 // อัปเดต 9 ส.ค. 2026: เปลี่ยนจาก step function เป็นเส้นต่อเนื่อง (interpolation) เหมือน occ mult
 // เดิม step function ทำให้ราคากระโดดแรงที่ขอบ 7/14/28/45/75 วัน (สูงสุด ~10-12 จุด% ในวันเดียว)
@@ -140,8 +152,9 @@ function calcRate(roomType, date, occPct, daysAhead) {
   const leadMult = getLeadMult(daysAhead);
   const promoMult = getPromoMult(date);
   const extraPromoMult = getExtraPromoMult(date);
+  const adjustmentMult = getAdjustmentMult(date);
 
-  let price = cfg.base * dowMult * seasonMult * occMult * leadMult * promoMult * extraPromoMult;
+  let price = cfg.base * dowMult * seasonMult * occMult * leadMult * promoMult * extraPromoMult * adjustmentMult;
   price = Math.round(price / 50) * 50;
 
   const floor = Math.round((cfg.min * 1.1) / 50) * 50;
