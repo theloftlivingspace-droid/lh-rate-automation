@@ -177,6 +177,42 @@ function calcRate(roomType, date, occPct, daysAhead) {
   return Math.max(floor, Math.min(ceiling, price));
 }
 
+// ── Ramp limiter: จำกัดการเปลี่ยนราคาต่อคืนต่อห้อง/วัน ไม่เกิน RATE_CHANGE_CAP_PCT ──
+// เพิ่ม 8 ก.ย. 2026: หลัง fix leadMult ให้ลดราคาแรงเมื่อ occ ต่ำใกล้เช็คอิน พบว่า push บางช่อง
+// (เช่น Allure ที่ลดทีเดียว 27-36%) รายงาน POST สำเร็จแต่ verify-GET เจอราคาไม่เปลี่ยน —
+// สงสัยว่า LH อาจ silent-reject การเปลี่ยนราคาก้อนใหญ่เกินไปในครั้งเดียว (fat-finger protection)
+// เพิ่ม ramp limiter ให้ไล่ระดับเข้าหา target แทนกระโดดทีเดียว โดยเทียบกับราคาที่ตั้งใจไว้ของ
+// "คืนก่อนหน้า" สำหรับวันที่เดียวกัน (จาก Target_Rates เดิมก่อนถูกเขียนทับ) — เป็นการดักที่ระดับ
+// เจตนา ไม่ใช่ราคาจริงใน LH ณ ขณะนี้ (ซึ่งอาจไม่ตรงกับ Target_Rates เดิมอยู่แล้วถ้ามีคืนไหน push ไม่ติด)
+const RATE_CHANGE_CAP_PCT = 15;
+function applyRampLimit_(rawTarget, prevRate, cfg) {
+  if (prevRate == null || !isFinite(prevRate) || prevRate <= 0) return rawTarget;
+  const maxUp = prevRate * (1 + RATE_CHANGE_CAP_PCT / 100);
+  const maxDown = prevRate * (1 - RATE_CHANGE_CAP_PCT / 100);
+  let capped = Math.max(maxDown, Math.min(maxUp, rawTarget));
+  capped = Math.round(capped / 50) * 50;
+  const floor = Math.round((cfg.min * 1.1) / 50) * 50;
+  const ceiling = Math.round((cfg.max * 0.9) / 50) * 50;
+  return Math.max(floor, Math.min(ceiling, capped));
+}
+
+// ── อ่านค่า Target_Rates "เดิม" ก่อนจะถูกเขียนทับ ใช้เป็น baseline ของ ramp limiter ──
+function readPrevTargetRates_(ss) {
+  const prev = {};
+  const sheet = ss.getSheetByName('Target_Rates');
+  if (!sheet) return prev;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    const [dateVal, roomType, rate] = data[i];
+    if (!dateVal || !roomType || !rate) continue;
+    const dateStr = dateVal instanceof Date
+      ? Utilities.formatDate(dateVal, 'Asia/Bangkok', 'yyyy-MM-dd')
+      : String(dateVal);
+    prev[dateStr + '_' + roomType] = Number(rate);
+  }
+  return prev;
+}
+
 // ── อ่าน Bookings sheet แล้วคำนวณ occupancy ล่วงหน้ารายสัปดาห์ต่อห้อง ──
 // คืนค่า object: { "RoomType_YYYY-MM-DD(สัปดาห์เริ่ม)": occPct }
 function computeAdvanceOccupancy() {
@@ -295,18 +331,25 @@ function computeTargetRates_() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  // ── อ่าน Target_Rates เดิม (ก่อนเขียนทับ) ไว้เป็น baseline ของ ramp limiter ──
+  const outputSs = SpreadsheetApp.openById(OUTPUT_SHEET_ID);
+  const prevRates = readPrevTargetRates_(outputSs);
+
   const rows = [];
   const now = new Date().toISOString();
 
   for (let dOffset = 0; dOffset <= DAYS_AHEAD_TO_COMPUTE; dOffset++) {
     const date = new Date(today);
     date.setDate(today.getDate() + dOffset);
+    const dateStr = Utilities.formatDate(date, 'Asia/Bangkok', 'yyyy-MM-dd');
 
     Object.keys(ROOM_CONFIG).forEach(roomType => {
       const occ = getWeekOccupancy(roomType, date, bookedNights);
-      const rate = calcRate(roomType, date, occ, dOffset);
+      const rawRate = calcRate(roomType, date, occ, dOffset);
+      const prevRate = prevRates[dateStr + '_' + roomType];
+      const rate = applyRampLimit_(rawRate, prevRate, ROOM_CONFIG[roomType]);
       rows.push([
-        Utilities.formatDate(date, 'Asia/Bangkok', 'yyyy-MM-dd'),
+        dateStr,
         roomType,
         rate,
         occ,
@@ -321,15 +364,14 @@ function computeTargetRates_() {
   }
 
   // ── 2) คำนวณสำเร็จแล้วเท่านั้นถึงจะเคลียร์+เขียนทับ sheet (ไฟล์แยก ไม่ใช่ Master) ──
-  const ss = SpreadsheetApp.openById(OUTPUT_SHEET_ID);
-  let sheet = ss.getSheetByName('Target_Rates');
+  let sheet = outputSs.getSheetByName('Target_Rates');
   if (!sheet) {
-    sheet = ss.insertSheet('Target_Rates');
+    sheet = outputSs.insertSheet('Target_Rates');
   }
   sheet.clearContents();
   sheet.appendRow(['Date', 'RoomType', 'Rate', 'Occ%', 'DaysAhead', 'UpdatedAt']);
   sheet.getRange(2, 1, rows.length, 6).setValues(rows);
-  Logger.log('เขียน Target_Rates สำเร็จ: ' + rows.length + ' แถว');
+  Logger.log('เขียน Target_Rates สำเร็จ: ' + rows.length + ' แถว (ramp limiter cap=' + RATE_CHANGE_CAP_PCT + '%)');
 }
 
 // ── ตั้ง trigger รันทุกคืน 02:00 (เรียกครั้งเดียวตอน setup) ──
