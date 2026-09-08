@@ -128,18 +128,33 @@ const LEAD_TIME_ANCHORS = [
   [45, 0.85],
   [75, 0.78],
 ];
-function getLeadMult(daysAhead) {
-  const pts = LEAD_TIME_ANCHORS;
-  if (daysAhead <= pts[0][0]) return pts[0][1];
-  if (daysAhead >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+
+// อัปเดต 8 ก.ย. 2026: เดิม leadMult ดันราคาขึ้นเสมอเมื่อใกล้วันเข้าพัก (daysAhead<=7) ไม่ว่า occupancy
+// ของวันนั้นจะต่ำแค่ไหน — ทำให้วันที่ยังขายไม่ออกและใกล้เข้าพักที่สุด (ซึ่งควรเร่งขาย) กลับถูกตั้งราคาสูงสุด
+// (+18% ที่ daysAhead=0) จนปิดการขายไม่ได้เลย เพิ่มเงื่อนไข: ถ้าใกล้วันเข้าพัก (<=7 วัน) และ occupancy
+// ยังต่ำกว่า LOW_OCC_THRESHOLD ให้ใช้เส้นลดราคาแทนเส้นขึ้นราคาเดิม เพื่อเร่งเติมห้องที่เหลือ
+const LOW_OCC_THRESHOLD = 40; // % — ต่ำกว่านี้ถือว่า "ยังขายไม่ออก" ในช่วงใกล้เช็คอิน
+const LOW_OCC_LEAD_ANCHORS = [
+  [0, 0.80],
+  [7, 0.95],
+];
+function interpolate_(pts, x) {
+  if (x <= pts[0][0]) return pts[0][1];
+  if (x >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
   for (let i = 0; i < pts.length - 1; i++) {
     const [x0, y0] = pts[i];
     const [x1, y1] = pts[i + 1];
-    if (daysAhead >= x0 && daysAhead <= x1) {
-      return y0 + (y1 - y0) * (daysAhead - x0) / (x1 - x0);
+    if (x >= x0 && x <= x1) {
+      return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
     }
   }
   return 1.0;
+}
+function getLeadMult(daysAhead, occPct) {
+  if (daysAhead <= 7 && occPct < LOW_OCC_THRESHOLD) {
+    return interpolate_(LOW_OCC_LEAD_ANCHORS, daysAhead);
+  }
+  return interpolate_(LEAD_TIME_ANCHORS, daysAhead);
 }
 
 // ── คำนวณราคาสุดท้าย ──
@@ -149,7 +164,7 @@ function calcRate(roomType, date, occPct, daysAhead) {
   const season = getSeasonForDate(date);
   const seasonMult = SEASON_MULT[season];
   const occMult = getOccMult(occPct);
-  const leadMult = getLeadMult(daysAhead);
+  const leadMult = getLeadMult(daysAhead, occPct);
   const promoMult = getPromoMult(date);
   const extraPromoMult = getExtraPromoMult(date);
   const adjustmentMult = getAdjustmentMult(date);
