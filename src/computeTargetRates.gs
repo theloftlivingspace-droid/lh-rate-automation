@@ -65,9 +65,15 @@ function getSeasonForDate(date) {
 // เส้นต่อเนื่องทำให้ราคาขยับตามสัดส่วน occ จริง ไม่ถูกขยายจากตำแหน่ง tier พอดี
 // ช่วง 0.70-0.95 คำนวณจาก floor/base ratio ของแต่ละห้อง (0.63-0.84) กัน curve จมอยู่ใต้ floor
 // ตลอดช่วง occ ต่ำ-กลาง (แบบที่ 0.25-0.72 เจอปัญหา) และคุมปลายบนไม่ให้ high/peak season พุ่งเกินไป
+// อัปเดต 14 ก.ย. 2026: เดิมปลายบนสุดของ curve คือ 0.95 ที่ occ=100% — แปลว่าต่อให้เต็มห้อง
+// ราคาก็ยังต่ำกว่า base เสมอ ไม่มีทางได้ premium เลย พบว่า Legacy occ 98% (ส.ค.)/Retro,Luxury
+// occ 100% (ก.ย.) แต่ ADR จริงต่ำกว่า PL Base 40-50% เพราะ mult คุมเพดานไว้ต่ำเกินไป
+// เพิ่ม anchor กลางที่ 75% ให้ mult=1.00 (occ ปกติ = ราคา base พอดี ตามหลักการเดิมของสูตร)
+// และดันปลายบนที่ 100% เป็น 1.30 ให้ห้องที่เต็ม/เกือบเต็มได้ premium ตามดีมานด์จริง
 const OCC_ANCHORS = [
   [0,   0.70],
-  [100, 0.95],
+  [75,  1.00],
+  [100, 1.30],
 ];
 function getOccMult(occPct) {
   const pts = OCC_ANCHORS;
@@ -86,7 +92,12 @@ function getOccMult(occPct) {
 // ── Promo: ลดราคาโดยรวม -10% ชั่วคราว ถึงสิ้นเดือน (เปิดใหม่ 27 ส.ค. 2026 เดิมตั้งไว้ถึง 31 ก.ค. 2026) ──
 const PROMO_DISC_PCT = 10;
 const PROMO_END_DATE = new Date(2026, 8, 30); // 30 ก.ย. 2026 (month index 8 = September)
-function getPromoMult(date) {
+// อัปเดต 14 ก.ย. 2026: โปรเดิม apply กับทุกห้องเท่ากัน ไม่ว่า demand จะสูงแค่ไหน — พบว่า
+// Legacy/Retro/Allure occ 82-100% (ไม่ต้องใช้โปรกระตุ้น) โดนลดราคาซ้อนกับห้องที่ demand
+// อ่อนจริง (เช่น Radiance) เพิ่มเงื่อนไข: ห้องที่ occ ปัจจุบัน (หน้าต่าง 7 คืน) >80% ตัดโปรออกทันที
+const PROMO_HIGH_OCC_CUTOFF = 80; // % — occ เกินนี้ = ไม่ให้โปร
+function getPromoMult(date, occPct) {
+  if (occPct != null && occPct > PROMO_HIGH_OCC_CUTOFF) return 1.0;
   const d = new Date(date); d.setHours(0,0,0,0);
   const end = new Date(PROMO_END_DATE); end.setHours(0,0,0,0);
   return d <= end ? 1 - (PROMO_DISC_PCT / 100) : 1.0;
@@ -97,7 +108,9 @@ function getPromoMult(date) {
 const EXTRA_PROMO_DISC_PCT = 10;
 const EXTRA_PROMO_START_DATE = new Date(2026, 7, 29); // 29 ส.ค. 2026
 const EXTRA_PROMO_END_DATE = new Date(2026, 8, 12);   // 12 ก.ย. 2026 (ครบ 2 สัปดาห์)
-function getExtraPromoMult(date) {
+// อัปเดต 14 ก.ย. 2026: เหตุผลเดียวกับ getPromoMult — ตัดโปรออกสำหรับห้อง occ>80%
+function getExtraPromoMult(date, occPct) {
+  if (occPct != null && occPct > PROMO_HIGH_OCC_CUTOFF) return 1.0;
   const d = new Date(date); d.setHours(0,0,0,0);
   const start = new Date(EXTRA_PROMO_START_DATE); start.setHours(0,0,0,0);
   const end = new Date(EXTRA_PROMO_END_DATE); end.setHours(0,0,0,0);
@@ -165,8 +178,8 @@ function calcRate(roomType, date, occPct, daysAhead) {
   const seasonMult = SEASON_MULT[season];
   const occMult = getOccMult(occPct);
   const leadMult = getLeadMult(daysAhead, occPct);
-  const promoMult = getPromoMult(date);
-  const extraPromoMult = getExtraPromoMult(date);
+  const promoMult = getPromoMult(date, occPct);
+  const extraPromoMult = getExtraPromoMult(date, occPct);
   const adjustmentMult = getAdjustmentMult(date);
 
   let price = cfg.base * dowMult * seasonMult * occMult * leadMult * promoMult * extraPromoMult * adjustmentMult;
