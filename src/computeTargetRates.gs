@@ -302,11 +302,37 @@ function normalizeRoomType(raw) {
   return raw; // ไม่ match จะถูกข้ามใน ROOM_CONFIG check
 }
 
+// จำนวนห้องรวมทั้งโรงแรม — ใช้เป็นตัวหารของ occ รวม (baseline ที่นิ่ง สำหรับ credibility blend ด้านล่าง)
+const TOTAL_ROOM_COUNT = Object.values(ROOM_CONFIG).reduce((sum, c) => sum + c.count, 0);
+
+// นับคืนที่ถูกจองรวมทุกห้องทุกประเภท ในหน้าต่าง 7 คืนรอบวันที่กำหนด (ใช้คำนวณ occ รวมโรงแรม)
+function getWeekNightsAllRooms_(date, bookedNights) {
+  const windowStart = new Date(date);
+  windowStart.setDate(date.getDate() - 3);
+  let nights = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(windowStart);
+    d.setDate(windowStart.getDate() + i);
+    const dStr = Utilities.formatDate(d, 'Asia/Bangkok', 'yyyy-MM-dd');
+    Object.keys(ROOM_CONFIG).forEach(rt => {
+      nights += bookedNights[rt + '_' + dStr] || 0;
+    });
+  }
+  return nights;
+}
+
 // occupancy ของหน้าต่าง 7 คืน "รอบวันที่กำหนด" (rolling window, ±3 วัน) เป็น %
 // อัปเดต 9 ส.ค. 2026: เดิมใช้สัปดาห์ปฏิทินตายตัว (จันทร์-อาทิตย์) ทำให้ occ% รีเซ็ตคำนวณใหม่
 // ทั้งก้อนทันทีที่ข้ามจากอาทิตย์ไปจันทร์ — ห้องที่มีแค่ 1 ห้อง (capacity 7 room-nights/สัปดาห์)
 // โดนหนักสุด เพราะการจอง 1-2 คืนหลุดจากหน้าต่างทำให้ occ กระโดด 15-30 จุดในคืนเดียว ราคาจึงกระโดดตาม
 // เปลี่ยนเป็นหน้าต่างเลื่อนตามวันที่ (rolling) แทน ทำให้ occ% ไล่ระดับต่อเนื่องวันต่อวัน ไม่มีขอบสัปดาห์ให้กระโดด
+//
+// อัปเดต 14 ก.ย. 2026: ห้อง 1 ห้อง (Luxury/Retro) ยัง noise สูงอยู่ดีแม้ใช้ rolling window แล้ว
+// เพราะ capacity ในหน้าต่าง (7 room-nights) เล็ก — จอง/ยกเลิก 1 คืน = occ กระโดด ~14 จุด%
+// เพิ่ม credibility-weighted blend: ผสม occ เฉพาะห้องประเภทนั้น กับ occ รวมทั้งโรงแรม (นิ่งกว่ามาก
+// เพราะ capacity ใหญ่กว่า ~7-10 เท่า) โดยน้ำหนักขึ้นกับ capacity ของห้องประเภทนั้นเอง —
+// ห้องยิ่งน้อย ยิ่งเชื่อ occ รวมโรงแรมมากขึ้น (แทนที่จะเชื่อ noise ของตัวเอง 100%)
+const OCC_CREDIBILITY_K = 14; // room-nights — ห้องที่ capacity เท่านี้จะเชื่อ occ ตัวเอง/รวม อย่างละครึ่ง
 function getWeekOccupancy(roomType, date, bookedNights) {
   const cfg = ROOM_CONFIG[roomType];
   const windowStart = new Date(date);
@@ -320,7 +346,15 @@ function getWeekOccupancy(roomType, date, bookedNights) {
     nights += bookedNights[key] || 0;
   }
   const capacity = 7 * cfg.count;
-  return capacity > 0 ? Math.round((nights / capacity) * 100) : 0;
+  const ownOcc = capacity > 0 ? (nights / capacity) * 100 : 0;
+
+  const propertyNights = getWeekNightsAllRooms_(date, bookedNights);
+  const propertyCapacity = 7 * TOTAL_ROOM_COUNT;
+  const propertyOcc = propertyCapacity > 0 ? (propertyNights / propertyCapacity) * 100 : 0;
+
+  const w = capacity / (capacity + OCC_CREDIBILITY_K);
+  const blended = w * ownOcc + (1 - w) * propertyOcc;
+  return Math.round(blended);
 }
 
 // ── Main entry point — รันทุกคืนผ่าน time-based trigger ──
