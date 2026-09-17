@@ -117,6 +117,37 @@ function getExtraPromoMult(date, occPct) {
   return (d >= start && d <= end) ? 1 - (EXTRA_PROMO_DISC_PCT / 100) : 1.0;
 }
 
+// อัปเดต 14 ก.ย. 2026: "New listing promotion" เฉพาะ Radiance — ขึ้น base 20% ก่อน แล้วลด 20% ทับ
+// (net ใกล้เคียง base เดิม แต่ขึ้น badge "ลด 20%" บน Airbnb/LH ดึงดูดการจองให้ listing ใหม่/underperform)
+// ตามที่ Nathan สั่ง 14 ก.ย. 2026: "ปรับราคาลงเท่าเดิมหลังจาก 3 booking แรก" — เลยทำเป็น auto-off:
+// นับ booking ใหม่ (วันจอง >= RADIANCE_PROMO_LAUNCH_DATE) ของ Radiance ทุกคืนตอนรัน compute
+// พอครบ 3 booking ปิดโปรเอง กลับไปใช้ base 613 ปกติทันที ไม่ต้องมาสั่งปิดเอง
+const RADIANCE_PROMO_LAUNCH_DATE = new Date(2026, 8, 14); // 14 ก.ย. 2026 — วันเริ่มโปรนี้
+const RADIANCE_PROMO_BOOKING_CAP = 3;
+const RADIANCE_BASE_INFLATE_PCT = 20;
+const RADIANCE_NEW_LISTING_PROMO_PCT = 20;
+// ตั้งค่าจริงทุกครั้งที่รัน computeTargetRates_() จากจำนวน booking วันจองล่าสุด (ดู setRadiancePromoActive_)
+let RADIANCE_PROMO_ACTIVE_ = true;
+
+function setRadiancePromoActive_(bookingsSincePromo) {
+  RADIANCE_PROMO_ACTIVE_ = bookingsSincePromo < RADIANCE_PROMO_BOOKING_CAP;
+  return RADIANCE_PROMO_ACTIVE_;
+}
+
+// base ที่ใช้จริงในการคำนวณ — Radiance ขึ้น 20% เฉพาะตอนโปรยังแอคทีฟอยู่ ห้องอื่นไม่กระทบ
+function getEffectiveBase_(roomType) {
+  const cfg = ROOM_CONFIG[roomType];
+  if (roomType === 'Radiance' && RADIANCE_PROMO_ACTIVE_) {
+    return cfg.base * (1 + RADIANCE_BASE_INFLATE_PCT / 100);
+  }
+  return cfg.base;
+}
+function getRadianceNewListingPromoMult(roomType, occPct) {
+  if (roomType !== 'Radiance' || !RADIANCE_PROMO_ACTIVE_) return 1.0;
+  if (occPct != null && occPct > PROMO_HIGH_OCC_CUTOFF) return 1.0;
+  return 1 - (RADIANCE_NEW_LISTING_PROMO_PCT / 100);
+}
+
 // ── Adjustment: ปรับราคาขึ้น +10% จากราคาปัจจุบัน (คูณทับทุก mult อื่นรวมโปรทั้งหมด) ถึงสิ้นเดือน ก.ย. 2026 ──
 // เพิ่ม 29 ส.ค. 2026 ตามคำขอ — ใช้กับทุกห้อง คูณต่อจาก promo/extraPromo (ไม่ใช่แทนที่)
 const ADJUSTMENT_PCT = 10;
@@ -173,6 +204,7 @@ function getLeadMult(daysAhead, occPct) {
 // ── คำนวณราคาสุดท้าย ──
 function calcRate(roomType, date, occPct, daysAhead) {
   const cfg = ROOM_CONFIG[roomType];
+  const base = getEffectiveBase_(roomType);
   const dowMult = getDowMult(date);
   const season = getSeasonForDate(date);
   const seasonMult = SEASON_MULT[season];
@@ -180,9 +212,10 @@ function calcRate(roomType, date, occPct, daysAhead) {
   const leadMult = getLeadMult(daysAhead, occPct);
   const promoMult = getPromoMult(date, occPct);
   const extraPromoMult = getExtraPromoMult(date, occPct);
+  const radianceNewListingMult = getRadianceNewListingPromoMult(roomType, occPct);
   const adjustmentMult = getAdjustmentMult(date);
 
-  let price = cfg.base * dowMult * seasonMult * occMult * leadMult * promoMult * extraPromoMult * adjustmentMult;
+  let price = base * dowMult * seasonMult * occMult * leadMult * promoMult * extraPromoMult * radianceNewListingMult * adjustmentMult;
   price = Math.round(price / 50) * 50;
 
   const floor = Math.round((cfg.min * 1.1) / 50) * 50;
@@ -238,6 +271,9 @@ function computeAdvanceOccupancy() {
   const checkinCol = headers.findIndex(h => /check.?in|เช็ค.?อิน/i.test(h));
   const checkoutCol = headers.findIndex(h => /check.?out|เช็ค.?เอาท์/i.test(h));
   const statusCol = headers.findIndex(h => /status|สถานะ/i.test(h));
+  // เพิ่ม 14 ก.ย. 2026: หา column "วันจอง" (booking date) เพื่อนับ booking ใหม่ของ Radiance
+  // ตั้งแต่วันเปิดโปร new-listing — ใช้ปิดโปรอัตโนมัติหลังครบ RADIANCE_PROMO_BOOKING_CAP booking
+  const bookingDateCol = headers.findIndex(h => /วันจอง|booking.?date|booked.?date/i.test(h));
 
   if (roomTypeCol === -1 || checkinCol === -1 || checkoutCol === -1) {
     throw new Error('หา column RoomType/CheckIn/CheckOut ใน Bookings sheet ไม่เจอ — เช็คชื่อ header');
@@ -245,6 +281,7 @@ function computeAdvanceOccupancy() {
 
   // นับจำนวนคืนที่ถูกจองต่อห้อง ต่อวัน (booked-night map)
   const bookedNights = {}; // key: "RoomType_YYYY-MM-DD" => count
+  let radianceBookingsSincePromo = 0;
 
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
@@ -258,6 +295,14 @@ function computeAdvanceOccupancy() {
     const roomType = normalizeRoomType(roomCell);
     if (!ROOM_CONFIG[roomType]) continue;
 
+    if (roomType === 'Radiance' && bookingDateCol !== -1) {
+      const bd = new Date(row[bookingDateCol]);
+      if (!isNaN(bd)) {
+        bd.setHours(0, 0, 0, 0);
+        if (bd >= RADIANCE_PROMO_LAUNCH_DATE) radianceBookingsSincePromo++;
+      }
+    }
+
     let ci = new Date(row[checkinCol]);
     let co = new Date(row[checkoutCol]);
     if (isNaN(ci) || isNaN(co)) continue;
@@ -268,7 +313,7 @@ function computeAdvanceOccupancy() {
       bookedNights[key] = (bookedNights[key] || 0) + 1;
     }
   }
-  return bookedNights;
+  return { bookedNights, radianceBookingsSincePromo };
 }
 
 // แปลงชื่อ room type จาก Bookings sheet ให้ตรงกับ ROOM_CONFIG keys
@@ -374,7 +419,10 @@ function computeTargetRates_() {
   // เดิม: sheet.clearContents() รันก่อน แล้วค่อยคำนวณ — ถ้า computeAdvanceOccupancy()
   // throw กลางทาง (เช่น หา column ใน Bookings sheet ไม่เจอ) จะเหลือ Target_Rates ว่างเปล่า
   // ค้างอยู่แบบนั้นทุกคืน เพราะ error เกิดหลังเคลียร์ไปแล้ว — สลับลำดับกันไม่ให้เกิดซ้ำ
-  const bookedNights = computeAdvanceOccupancy();
+  const { bookedNights, radianceBookingsSincePromo } = computeAdvanceOccupancy();
+  const radiancePromoActive = setRadiancePromoActive_(radianceBookingsSincePromo);
+  Logger.log('Radiance new-listing promo: booking ตั้งแต่ 14 ก.ย. = ' + radianceBookingsSincePromo +
+    '/' + RADIANCE_PROMO_BOOKING_CAP + ' — ' + (radiancePromoActive ? 'ยังเปิดอยู่' : 'ปิดแล้ว (ครบ cap) กลับไปใช้ base ปกติ'));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
