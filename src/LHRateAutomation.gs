@@ -196,6 +196,43 @@ function readTargetRates() {
   return targets;
 }
 
+// ── อัปเดต 17 ก.ย. 2026: เขียนทับค่าใน Target_Rates sheet ของเราเองให้ตรงกับค่าจริงที่ LH ยืนยันแล้ว ──
+// เรียกทุกครั้งหลัง verify-GET เจอช่องที่ POST แล้วไม่ persist จริง — กันไม่ให้ ramp limiter รอบถัดไป
+// (readPrevTargetRates_ ใน computeTargetRates.gs) เทียบกับค่า "ตั้งใจ" ที่ไม่เคยติดจริงบน LH
+// mismatches: [{date, roomType, actual}, ...] — แก้เฉพาะแถวที่ตรง date+roomType เท่านั้น ไม่แตะแถวอื่น
+function reconcileTargetRatesSheet_(mismatches) {
+  try {
+    const ss = SpreadsheetApp.openById(LH_SHEET_ID);
+    const sheet = ss.getSheetByName('Target_Rates');
+    if (!sheet) return;
+    const data = sheet.getDataRange().getValues();
+
+    // สร้าง lookup: "date_roomType" -> row index (1-based สำหรับ getRange)
+    const rowIndex = {};
+    for (let i = 1; i < data.length; i++) {
+      const [dateVal, roomType] = data[i];
+      if (!dateVal || !roomType) continue;
+      const dateStr = dateVal instanceof Date
+        ? Utilities.formatDate(dateVal, 'Asia/Bangkok', 'yyyy-MM-dd')
+        : String(dateVal);
+      rowIndex[dateStr + '_' + roomType] = i + 1; // +1: data[] เริ่ม 0, sheet row เริ่ม 1 (+header)
+    }
+
+    let patched = 0;
+    mismatches.forEach(m => {
+      const r = rowIndex[m.date + '_' + m.roomType];
+      if (!r || isNaN(m.actual)) return;
+      sheet.getRange(r, 3).setValue(m.actual); // column 3 = Rate
+      patched++;
+    });
+    if (patched > 0) {
+      Logger.log(`  🔄 sync Target_Rates กลับให้ตรง LH จริงแล้ว ${patched}/${mismatches.length} แถว (กัน ramp limiter drift รอบถัดไป)`);
+    }
+  } catch (err) {
+    Logger.log('⚠️ reconcileTargetRatesSheet_ ล้มเหลว (ไม่กระทบ push รอบนี้ แต่ sheet อาจยัง drift อยู่): ' + err);
+  }
+}
+
 // ── ประมวลผล 1 หน้า (14 วัน) ──
 // dryRunOverride: true = ไม่ POST เด็ดขาด (ใช้กับ diffRatesVsLH) ไม่ขึ้นกับ DRY_RUN const
 function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
@@ -315,25 +352,30 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
   });
   let verifyHtml = verifyResp.getContentText();
   let notPersisted = [];
+  let finalMismatches = [];
 
   const checkPersisted_ = (html) => {
     const result = [];
+    const mismatches = []; // structured — ใช้ sync sheet ของเรากลับให้ตรง LH จริง (กัน ramp limiter drift)
     const fields = {};
     parseFormFields(html).forEach(([name, value]) => { fields[name] = value; });
     diffs.forEach(d => {
       const actual = parseFloat(fields[d.fieldName]);
       if (actual !== d.targetRate) {
         result.push(`${d.roomType} ${d.date}: ตั้งใจ ${d.targetRate} แต่ LH ยังโชว์ ${actual}`);
+        mismatches.push({ date: d.date, roomType: d.roomType, actual });
       }
     });
-    return result;
+    return { messages: result, mismatches };
   };
 
   if (verifyResp.getResponseCode() !== 200 || verifyHtml.indexOf('rate_plan_dates') === -1) {
     // GET ยืนยันเองพังไม่ได้แปลว่า POST ล้มเหลว แต่เตือนไว้เพราะ verify ไม่ได้จริงๆ
     Logger.log(`⚠️ หน้า ${startDateStr}: verify-GET หลัง POST โหลดไม่สำเร็จ — ยืนยันผลจริงไม่ได้ (POST เองสถานะปกติ)`);
   } else {
-    notPersisted = checkPersisted_(verifyHtml);
+    let checked = checkPersisted_(verifyHtml);
+    notPersisted = checked.messages;
+    finalMismatches = checked.mismatches;
 
     if (notPersisted.length > 0) {
       // ── retry ครั้งเดียว: เผื่อ LH ยังเขียน DB ไม่เสร็จตอน verify ครั้งแรก ──
@@ -345,13 +387,21 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
         muteHttpExceptions: true,
       });
       if (verifyResp2.getResponseCode() === 200) {
-        const notPersisted2 = checkPersisted_(verifyResp2.getContentText());
-        if (notPersisted2.length < notPersisted.length) {
-          Logger.log(`  ✅ เช็คซ้ำแล้วดีขึ้น: เหลือไม่ persist ${notPersisted2.length}/${notPersisted.length} ช่อง (แปลว่า LH เขียนช้าจริง ไม่ใช่ POST ผิด)`);
+        const checked2 = checkPersisted_(verifyResp2.getContentText());
+        if (checked2.messages.length < notPersisted.length) {
+          Logger.log(`  ✅ เช็คซ้ำแล้วดีขึ้น: เหลือไม่ persist ${checked2.messages.length}/${notPersisted.length} ช่อง (แปลว่า LH เขียนช้าจริง ไม่ใช่ POST ผิด)`);
         }
-        notPersisted = notPersisted2;
+        notPersisted = checked2.messages;
+        finalMismatches = checked2.mismatches;
       }
     }
+  }
+
+  // ── อัปเดต 17 ก.ย. 2026: sync sheet Target_Rates ของเราเองให้ตรงกับ "ค่าจริง" ที่ LH ยืนยันแล้ว ──
+  // เขียนทับด้วยค่าจริงของ LH เฉพาะช่องที่ไม่ persist กัน ramp limiter รอบถัดไปเทียบกับค่า "ตั้งใจ"
+  // ที่ไม่เคยติดจริง ซึ่งเป็นสาเหตุที่ทำให้ diff สะสมห่างจาก LH จริงไปเรื่อยๆ ทีละ ramp step ทุกคืน
+  if (finalMismatches.length > 0) {
+    reconcileTargetRatesSheet_(finalMismatches);
   }
 
   if (notPersisted.length > 0) {
