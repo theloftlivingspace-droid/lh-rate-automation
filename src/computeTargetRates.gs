@@ -117,15 +117,19 @@ function getExtraPromoMult(date, occPct) {
   return (d >= start && d <= end) ? 1 - (EXTRA_PROMO_DISC_PCT / 100) : 1.0;
 }
 
-// อัปเดต 14 ก.ย. 2026: "New listing promotion" เฉพาะ Radiance — ขึ้น base 20% ก่อน แล้วลด 20% ทับ
-// (net ใกล้เคียง base เดิม แต่ขึ้น badge "ลด 20%" บน Airbnb/LH ดึงดูดการจองให้ listing ใหม่/underperform)
-// ตามที่ Nathan สั่ง 14 ก.ย. 2026: "ปรับราคาลงเท่าเดิมหลังจาก 3 booking แรก" — เลยทำเป็น auto-off:
+// อัปเดต 17 ก.ย. 2026: เอาส่วนลด -20% ที่เราคำนวณเองออก — พบว่ามันหักล้างกับ base ที่ขึ้น +20%
+// จนราคาที่ส่งไป LH แทบไม่ต่างจากเดิมเลย (เห็นได้จาก Nathan เช็คแล้วราคาไม่ขึ้น) ที่ถูกต้องคือ
+// เราส่งแค่ราคา (base +20%) ไปที่ LH/Airbnb เฉยๆ — ส่วน "ลด 20% off" ที่โชว์ badge ให้แขกเห็นจริง
+// ต้องไปเปิดที่ Airbnb host tools > "New listing promotion" เอง (ฟีเจอร์ของ Airbnb โดยตรง ไม่ใช่
+// อะไรที่ LH rate-push ทำได้) Airbnb จะคำนวณส่วนลดจากราคาที่เราตั้งไว้ (base+20%) เอง ทำให้ราคาที่แขก
+// จ่ายจริงใกล้เคียงราคาปกติ แต่ badge ลดราคาเป็นของจริงจาก Airbnb ไม่ใช่เราลดเองซ้อนอีกชั้น
+//
+// อัปเดต 14 ก.ย. 2026: ตามที่ Nathan สั่ง "ปรับราคาลงเท่าเดิมหลังจาก 3 booking แรก" — เลยทำเป็น auto-off:
 // นับ booking ใหม่ (วันจอง >= RADIANCE_PROMO_LAUNCH_DATE) ของ Radiance ทุกคืนตอนรัน compute
-// พอครบ 3 booking ปิดโปรเอง กลับไปใช้ base 613 ปกติทันที ไม่ต้องมาสั่งปิดเอง
+// พอครบ 3 booking ปิดเอง กลับไปใช้ base 613 ปกติทันที ไม่ต้องมาสั่งปิดเอง
 const RADIANCE_PROMO_LAUNCH_DATE = new Date(2026, 8, 14); // 14 ก.ย. 2026 — วันเริ่มโปรนี้
 const RADIANCE_PROMO_BOOKING_CAP = 3;
 const RADIANCE_BASE_INFLATE_PCT = 20;
-const RADIANCE_NEW_LISTING_PROMO_PCT = 20;
 // ตั้งค่าจริงทุกครั้งที่รัน computeTargetRates_() จากจำนวน booking วันจองล่าสุด (ดู setRadiancePromoActive_)
 let RADIANCE_PROMO_ACTIVE_ = true;
 
@@ -141,11 +145,6 @@ function getEffectiveBase_(roomType) {
     return cfg.base * (1 + RADIANCE_BASE_INFLATE_PCT / 100);
   }
   return cfg.base;
-}
-function getRadianceNewListingPromoMult(roomType, occPct) {
-  if (roomType !== 'Radiance' || !RADIANCE_PROMO_ACTIVE_) return 1.0;
-  if (occPct != null && occPct > PROMO_HIGH_OCC_CUTOFF) return 1.0;
-  return 1 - (RADIANCE_NEW_LISTING_PROMO_PCT / 100);
 }
 
 // ── Adjustment: ปรับราคาขึ้น +10% จากราคาปัจจุบัน (คูณทับทุก mult อื่นรวมโปรทั้งหมด) ถึงสิ้นเดือน ก.ย. 2026 ──
@@ -212,10 +211,9 @@ function calcRate(roomType, date, occPct, daysAhead) {
   const leadMult = getLeadMult(daysAhead, occPct);
   const promoMult = getPromoMult(date, occPct);
   const extraPromoMult = getExtraPromoMult(date, occPct);
-  const radianceNewListingMult = getRadianceNewListingPromoMult(roomType, occPct);
   const adjustmentMult = getAdjustmentMult(date);
 
-  let price = base * dowMult * seasonMult * occMult * leadMult * promoMult * extraPromoMult * radianceNewListingMult * adjustmentMult;
+  let price = base * dowMult * seasonMult * occMult * leadMult * promoMult * extraPromoMult * adjustmentMult;
   price = Math.round(price / 50) * 50;
 
   const floor = Math.round((cfg.min * 1.1) / 50) * 50;
