@@ -18,10 +18,11 @@ const DAYS_AHEAD_TO_COMPUTE = 90;
 // ── ค่าคงที่ห้องพัก (จาก ROOMS_DATA ใน loft-pricing dashboard) ──
 // อัปเดต 25 ก.ย. 2026: เพิ่ม base ของ Retro และ Radiance ขึ้น +30% ตามคำสั่ง Nathan
 // Retro: 740 → 962 (740*1.30) | Radiance: 613 → 797 (613*1.30, ปัดเศษ)
+// อัปเดต 2 ต.ค. 2026: เพิ่ม base ของ Allure ขึ้น +20% ตามคำสั่ง Nathan — Allure: 784 → 941 (784*1.20, ปัดเศษ)
 const ROOM_CONFIG = {
   Luxury:   { base: 780, min: 450, max: 1800, count: 1 },
   Retro:    { base: 962, min: 400, max: 1500, count: 1 },
-  Allure:   { base: 784, min: 500, max: 1400, count: 2 },
+  Allure:   { base: 941, min: 500, max: 1400, count: 2 },
   Elegance: { base: 690, min: 360, max: 1300, count: 2 },
   Legacy:   { base: 699, min: 360, max: 1300, count: 2 },
   Radiance: { base: 797, min: 380, max: 1350, count: 2 },
