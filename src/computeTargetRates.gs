@@ -162,6 +162,19 @@ function getAdjustmentMult(date) {
   return (d >= start && d <= end) ? 1 + (ADJUSTMENT_PCT / 100) : 1.0;
 }
 
+// ── Flood / low tourism discount: ลดราคาชั่วคราวช่วงน้ำท่วมกระทบนักท่องเที่ยว ──
+// เพิ่ม 6 ต.ค. 2026 ตามคำสั่ง Nathan — ลดทุกประเภทห้องเท่ากัน -15% ช่วง 6-20 ต.ค. 2026
+// เป็น multiplier แยก ไม่แตะ SEASON_MULT เดิม ปิดเองอัตโนมัติหลังหมดช่วง ไม่ต้องมาปิดมือ
+const FLOOD_DISC_PCT = 15;
+const FLOOD_START_DATE = new Date(2026, 9, 6);  // 6 ต.ค. 2026
+const FLOOD_END_DATE = new Date(2026, 9, 20);   // 20 ต.ค. 2026
+function getFloodMult(date) {
+  const d = new Date(date); d.setHours(0,0,0,0);
+  const start = new Date(FLOOD_START_DATE); start.setHours(0,0,0,0);
+  const end = new Date(FLOOD_END_DATE); end.setHours(0,0,0,0);
+  return (d >= start && d <= end) ? 1 - (FLOOD_DISC_PCT / 100) : 1.0;
+}
+
 // ── Lead time discount ──
 // อัปเดต 9 ส.ค. 2026: เปลี่ยนจาก step function เป็นเส้นต่อเนื่อง (interpolation) เหมือน occ mult
 // เดิม step function ทำให้ราคากระโดดแรงที่ขอบ 7/14/28/45/75 วัน (สูงสุด ~10-12 จุด% ในวันเดียว)
@@ -215,8 +228,9 @@ function calcRate(roomType, date, occPct, daysAhead) {
   const promoMult = getPromoMult(date, occPct);
   const extraPromoMult = getExtraPromoMult(date, occPct);
   const adjustmentMult = getAdjustmentMult(date);
+  const floodMult = getFloodMult(date);
 
-  let price = base * dowMult * seasonMult * occMult * leadMult * promoMult * extraPromoMult * adjustmentMult;
+  let price = base * dowMult * seasonMult * occMult * leadMult * promoMult * extraPromoMult * adjustmentMult * floodMult;
   price = Math.round(price / 50) * 50;
 
   const floor = Math.round((cfg.min * 1.1) / 50) * 50;
