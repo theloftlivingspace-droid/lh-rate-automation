@@ -25,7 +25,7 @@ const ROOM_CONFIG = {
   Allure:   { base: 941, min: 500, max: 1400, count: 2 },
   Elegance: { base: 690, min: 360, max: 1300, count: 2 },
   Legacy:   { base: 699, min: 360, max: 1300, count: 2 },
-  Radiance: { base: 797, min: 380, max: 1350, count: 2 },
+  Radiance: { base: 700, min: 380, max: 1350, count: 2 }, // 6 ต.ค. 2026: 797 → 700 ตามคำสั่ง Nathan (ห้องใหม่ ขายไม่ออกที่ราคาเดิม ปรับให้เท่า Elegance/Legacy)
 };
 
 // ── DOW multiplier ──
@@ -132,7 +132,9 @@ function getExtraPromoMult(date, occPct) {
 // พอครบ 3 booking ปิดเอง กลับไปใช้ base 613 ปกติทันที ไม่ต้องมาสั่งปิดเอง
 const RADIANCE_PROMO_LAUNCH_DATE = new Date(2026, 8, 14); // 14 ก.ย. 2026 — วันเริ่มโปรนี้
 const RADIANCE_PROMO_BOOKING_CAP = 3;
-const RADIANCE_BASE_INFLATE_PCT = 20;
+// 6 ต.ค. 2026: ตั้งเป็น 0 ตามคำสั่ง Nathan — เลิกขึ้น base +20% ของโปร new-listing (เดิมซ้อนกับ +30% ของ 25 ก.ย.
+// ทำให้ base ใช้จริง 956) ตอนนี้ base ใช้จริงของ Radiance = ROOM_CONFIG.Radiance.base (700) ตลอด
+const RADIANCE_BASE_INFLATE_PCT = 0;
 // ตั้งค่าจริงทุกครั้งที่รัน computeTargetRates_() จากจำนวน booking วันจองล่าสุด (ดู setRadiancePromoActive_)
 let RADIANCE_PROMO_ACTIVE_ = true;
 
