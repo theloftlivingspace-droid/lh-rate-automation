@@ -29,3 +29,11 @@ Script ID: `1WqeF-SF_MgVQ4bBZzkPD6SqvOuyEQiaWEmxhNwFpEgu9NyHmUJY4BazK`
 - **ตั้ง trigger ครั้งเดียว:** รัน `setupKeepAliveTrigger()` ใน Apps Script editor
 - ข้อความแจ้งเตือนหมดอายุมีเวลา "ต่ออายุอัตโนมัติล่าสุด" / "keep-alive สำเร็จล่าสุด" ไว้วินิจฉัยว่า LH ตัดแบบ idle หรือ absolute
 - ทดสอบ: `node tests/lhsession.test.js`
+
+## เติมจำนวนแขกจาก LH (LHGuests.gs)
+
+- อ่านหน้า Reservations ของ LH (คอลัมน์ Occupants: ผู้ใหญ่ / เด็ก / ทารก) แล้วเติม `Adults`/`Children`/`Guests` ใน Sheet1 **เฉพาะแถวที่ยังว่าง** ไม่ทับค่าเดิม (รวมที่แอดมินกรอกเอง)
+- จับคู่ด้วย ชื่อแขก + วันเช็คอิน (ไม่เดา: จับคู่ได้หลายแถวที่จำนวนไม่ตรงกัน = ปล่อยว่าง)
+- รันอัตโนมัติจาก `keepLhSessionAlive()` ทุก ~2 ชม. หลังยืนยันว่า session ใช้ได้ หรือรันมือ `syncGuestCountsFromLH()`
+- ทารกนับรวมในช่อง "เด็ก" · เฉพาะการจองที่ยังไม่เช็คเอาท์ · ข้ามแถวที่ยกเลิก
+- ทดสอบ: `node tests/lhguests.test.js`

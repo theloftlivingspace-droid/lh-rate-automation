@@ -121,6 +121,7 @@ function keepLhSessionAlive() {
     if (state === 'valid') {
       props.setProperty('LH_SESSION_LAST_OK_AT', new Date().toISOString());
       Logger.log('✅ keepLhSessionAlive: session ยังใช้ได้');
+      lhMaybeSyncGuests_(); // เติมจำนวนแขกจากหน้า Reservations ของ LH (ทุก ~2 ชม. / ดู LHGuests.gs)
     } else if (state === 'transient') {
       Logger.log('⚠️ keepLhSessionAlive: LH ตอบผิดปกติชั่วคราว (429/5xx/network) — ยังไม่ตัดสินว่าหมดอายุ รอรอบหน้า');
     } else if (lhIsQuietHour_()) {

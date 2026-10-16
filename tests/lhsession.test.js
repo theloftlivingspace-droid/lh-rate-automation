@@ -8,11 +8,12 @@ global.Utilities={sleep:()=>{sleeps++},formatDate:(d,tz,f)=>f==='H'?String(hour)
 global.LockService={getScriptLock:()=>({tryLock:()=>global.__lock!==false,releaseLock:()=>{}})};
 global.ScriptApp={getProjectTriggers:()=>[],deleteTrigger:()=>{},newTrigger:()=>({timeBased:()=>({everyMinutes:()=>({create:()=>{}})})})};
 global.UrlFetchApp={fetch:(url,o)=>{fetched.push(o.headers.Cookie); const r=nextResp.shift(); if(r instanceof Error) throw r; return r;}};
+let syncCalls=0; global.lhMaybeSyncGuests_=()=>{syncCalls++};
 global.notifySessionExpired=a=>notified.push(a); global.getSessionAgeStr_=()=>'age';
 eval(fs.readFileSync(require('path').join(__dirname,'..','src','LHSession.gs'),'utf8').replace(/^const /gm,'global.').replace(/^function (\w+)/gm,'global.$1 = function'));
 const R=(code,body='',hdr={})=>({getResponseCode:()=>code,getContentText:()=>body,getAllHeaders:()=>hdr});
 const NEW='A'.repeat(40), OLD='O'.repeat(40);
-const reset=()=>{store={LH_SESSION_COOKIE:OLD,LH_SESSION_SET_AT:'2026-10-16T01:00:00.000Z'};logs=[];notified=[];sleeps=0;nextResp=[];fetched=[];hour=14;global.__lock=true;};
+const reset=()=>{syncCalls=0;store={LH_SESSION_COOKIE:OLD,LH_SESSION_SET_AT:'2026-10-16T01:00:00.000Z'};logs=[];notified=[];sleeps=0;nextResp=[];fetched=[];hour=14;global.__lock=true;};
 
 // 1) rotation on authenticated page
 reset(); nextResp=[R(200,'x rate_plan_dates',{'Set-Cookie':`_littlehotelier_session=${NEW}; path=/; HttpOnly`})];
@@ -35,9 +36,9 @@ reset(); nextResp=[R(302,'')]; assert.strictEqual(checkSessionState_(),'expired'
 reset(); nextResp=[R(503),R(502),R(200,'rate_plan_dates')]; assert.strictEqual(checkSessionState_(),'valid'); assert.strictEqual(sleeps,2);
 reset(); nextResp=[new Error('dns'),R(429),R(500)]; assert.strictEqual(checkSessionState_(),'transient');
 // 7) keep-alive behaviors
-reset(); nextResp=[R(200,'rate_plan_dates')]; keepLhSessionAlive(); assert.ok(store.LH_SESSION_LAST_OK_AT); assert.strictEqual(notified.length,0);
-reset(); nextResp=[R(503),R(503),R(503)]; keepLhSessionAlive(); assert.strictEqual(notified.length,0); assert.ok(!store.LH_SESSION_EXPIRED_AT);
-reset(); nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,1); assert.ok(store.LH_SESSION_EXPIRED_AT);
+reset(); nextResp=[R(200,'rate_plan_dates')]; keepLhSessionAlive(); assert.ok(store.LH_SESSION_LAST_OK_AT); assert.strictEqual(notified.length,0); assert.strictEqual(syncCalls,1); // เติมจำนวนแขกเมื่อ session ใช้ได้
+reset(); nextResp=[R(503),R(503),R(503)]; keepLhSessionAlive(); assert.strictEqual(syncCalls,0); assert.strictEqual(notified.length,0); assert.ok(!store.LH_SESSION_EXPIRED_AT);
+reset(); nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(syncCalls,0); assert.strictEqual(notified.length,1); assert.ok(store.LH_SESSION_EXPIRED_AT);
 // ไม่แจ้งซ้ำจนกว่าจะ sync ใหม่
 nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,1); 
 store.LH_SESSION_SET_AT='2026-10-17T09:00:00.000Z'; nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,2);
