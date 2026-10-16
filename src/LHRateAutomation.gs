@@ -78,7 +78,13 @@ function pushRatesToLH_() {
   }
 
   // ── เช็ค session ก่อนแตะราคาจริงแม้แต่หน้าเดียว ──
-  if (!checkSessionValid_(cookie)) {
+  const sessionState = checkSessionState_();
+  if (sessionState === 'transient') {
+    Logger.log('⚠️ LH ตอบผิดปกติชั่วคราว (ลองซ้ำ 3 ครั้งแล้ว) — ข้ามรอบนี้ ยังไม่แตะราคาใดๆ');
+    notifyAdmin_('⚠️ Rate push ข้ามรอบนี้ — Little Hotelier ตอบผิดปกติชั่วคราว (ไม่ใช่ session หมดอายุ) ลองสั่ง push ใหม่ภายหลังได้');
+    return;
+  }
+  if (sessionState !== 'valid') {
     const ageStr = getSessionAgeStr_();
     Logger.log('❌ Session หมดอายุ (ตรวจพบก่อนเริ่มส่งราคา) — หยุดทันที ยังไม่แตะราคาใดๆ');
     notifySessionExpired(ageStr);
@@ -153,29 +159,24 @@ function pushRatesToLH_() {
 }
 
 // ── ตรวจสอบว่า session ยังใช้ได้ไหม (GET เบาๆ 1 ครั้ง ก่อนแตะราคาจริง) ──
-function checkSessionValid_(cookie) {
-  const todayStr = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
-  const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=${todayStr}&viewable_fields=detailed`;
-  try {
-    const resp = UrlFetchApp.fetch(url, {
-      method: 'get',
-      headers: { Cookie: `_littlehotelier_session=${cookie}` },
-      muteHttpExceptions: true,
-    });
-    const html = resp.getContentText();
-    return resp.getResponseCode() === 200 && html.indexOf('rate_plan_dates') !== -1;
-  } catch (e) {
-    Logger.log('checkSessionValid_ error: ' + e);
-    return false;
-  }
+function checkSessionValid_(cookie) { // เก็บชื่อเดิมไว้ — ตอนนี้ใช้ checkSessionState_() (LHSession.gs) ที่แยก transient ออกจาก expired
+  return checkSessionState_() === 'valid';
 }
 
 // ── คำนวณอายุ session สำหรับข้อความแจ้งเตือน ──
 function getSessionAgeStr_() {
-  const setAt = PropertiesService.getScriptProperties().getProperty('LH_SESSION_SET_AT');
-  return setAt
+  const props = PropertiesService.getScriptProperties();
+  const setAt = props.getProperty('LH_SESSION_SET_AT');
+  let out = setAt
     ? Math.round((Date.now() - new Date(setAt).getTime()) / 3600000) + ' ชั่วโมง (ตั้งไว้เมื่อ ' + setAt + ')'
     : 'ไม่ทราบ (ไม่มีบันทึกเวลา — sync ผ่าน SessionSync webapp ครั้งหน้าจะเริ่มบันทึกให้)';
+  // ข้อมูลวินิจฉัย: ต่ออายุอัตโนมัติ/keep-alive ล่าสุดเมื่อไร (ช่วยบอกว่า LH ตัด session แบบ idle หรือ absolute)
+  const refreshedAt = props.getProperty('LH_SESSION_REFRESHED_AT');
+  const lastOkAt = props.getProperty('LH_SESSION_LAST_OK_AT');
+  const rotations = props.getProperty('LH_SESSION_ROTATIONS');
+  if (refreshedAt) out += '\nต่ออายุคุกกี้อัตโนมัติล่าสุด: ' + refreshedAt + (rotations ? ' (รวม ' + rotations + ' ครั้ง)' : '');
+  if (lastOkAt) out += '\nkeep-alive สำเร็จล่าสุด: ' + lastOkAt;
+  return out;
 }
 
 // ── อ่าน Target_Rates sheet ──
@@ -238,14 +239,19 @@ function reconcileTargetRatesSheet_(mismatches) {
 // dryRunOverride: true = ไม่ POST เด็ดขาด (ใช้กับ diffRatesVsLH) ไม่ขึ้นกับ DRY_RUN const
 function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
   const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=${startDateStr}&viewable_fields=detailed`;
-  const resp = UrlFetchApp.fetch(url, {
+  const resp = lhFetch_(url, {
     method: 'get',
     headers: { Cookie: `_littlehotelier_session=${cookie}` },
     muteHttpExceptions: true,
   });
 
   const html = resp.getContentText();
-  if (resp.getResponseCode() !== 200 || html.indexOf('rate_plan_dates') === -1) {
+  const respCode = resp.getResponseCode();
+  if (respCode === 429 || respCode >= 500) {
+    // LH ตอบผิดปกติชั่วคราว — ไม่ใช่ session หมดอายุ (ให้ตกไปเป็น page error ธรรมดา)
+    throw new Error('LH ตอบ status ' + respCode + ' (ชั่วคราว ไม่ใช่ session หมดอายุ) หน้า ' + startDateStr);
+  }
+  if (respCode !== 200 || html.indexOf('rate_plan_dates') === -1) {
     return { sessionExpired: true, updatedCount: 0, diffs: [], extractionFailures: [] };
   }
 
@@ -318,7 +324,7 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
   const parsedFieldCount = fields.length;
   Logger.log(`  📤 หน้า ${startDateStr}: ส่ง ${sentFieldCount} fields (parse ได้จากฟอร์มเดิม ${parsedFieldCount} fields), authenticity_token length=${authToken ? authToken.length : 0}`);
 
-  const postResp = UrlFetchApp.fetch(`${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory`, {
+  const postResp = lhFetch_(`${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory`, {
     method: 'post',
     headers: { Cookie: `_littlehotelier_session=${cookie}` },
     payload: fieldMap,
@@ -346,7 +352,7 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
   //  สงสัยว่า backend ใหม่ของ LH [extranet-beef/GraphQL] อาจประมวลผลแบบ async/queue
   //  ทำให้ verify-GET เร็วเกินไปอ่านค่าเก่าที่ยังไม่ commit จริง จึงเพิ่ม delay + retry ครั้งเดียว)
   Utilities.sleep(3000); // เผื่อเวลาให้ LH เขียนลง DB เสร็จก่อน re-GET (เพิ่มจาก 800ms)
-  let verifyResp = UrlFetchApp.fetch(url, {
+  let verifyResp = lhFetch_(url, {
     method: 'get',
     headers: { Cookie: `_littlehotelier_session=${cookie}` },
     muteHttpExceptions: true,
@@ -382,7 +388,7 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
       // ── retry ครั้งเดียว: เผื่อ LH ยังเขียน DB ไม่เสร็จตอน verify ครั้งแรก ──
       Logger.log(`  ⏳ verify-GET รอบแรกเจอ ${notPersisted.length} ช่องไม่ตรง — รอ 5 วินาทีแล้วเช็คซ้ำอีกรอบก่อนสรุปว่าล้มเหลวจริง`);
       Utilities.sleep(5000);
-      const verifyResp2 = UrlFetchApp.fetch(url, {
+      const verifyResp2 = lhFetch_(url, {
         method: 'get',
         headers: { Cookie: `_littlehotelier_session=${cookie}` },
         muteHttpExceptions: true,
@@ -422,7 +428,7 @@ function debugDumpRateRow() {
   // rate push ล้มเหลวเฉพาะวันนี้ — ราคาที่ LH โชว์สูงผิดปกติทุกห้องพร้อมกัน (สงสัย manual rate)
   // page เริ่มต้นต้องเป็นวันที่ที่ 25 พ.ย. ตกอยู่ในช่วง 14 วันของมัน (pushOnePage หน้า 2026-11-19)
   const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=2026-11-19&viewable_fields=detailed`;
-  const resp = UrlFetchApp.fetch(url, {
+  const resp = lhFetch_(url, {
     method: 'get',
     headers: { Cookie: `_littlehotelier_session=${cookie}` },
     muteHttpExceptions: true,
@@ -470,7 +476,7 @@ function debugDumpRateRow() {
 function debugDumpFullRatePlanTable() {
   const cookie = PropertiesService.getScriptProperties().getProperty('LH_SESSION_COOKIE');
   const url = `${LH_BASE_URL}/extranet/properties/${LH_PROPERTY_ID}/inventory/edit?start_date=2026-08-17&viewable_fields=detailed`;
-  const resp = UrlFetchApp.fetch(url, {
+  const resp = lhFetch_(url, {
     method: 'get',
     headers: { Cookie: `_littlehotelier_session=${cookie}` },
     muteHttpExceptions: true,
@@ -659,7 +665,12 @@ function diffRatesVsLH() {
     notifyAdmin_('⚠️ diffRatesVsLH ทำไม่ได้ — ไม่พบ LH_SESSION_COOKIE');
     return;
   }
-  if (!checkSessionValid_(cookie)) {
+  const diffState = checkSessionState_();
+  if (diffState === 'transient') {
+    notifyAdmin_('⚠️ diffRatesVsLH ข้าม — Little Hotelier ตอบผิดปกติชั่วคราว (ไม่ใช่ session หมดอายุ)');
+    return;
+  }
+  if (diffState !== 'valid') {
     notifySessionExpired(getSessionAgeStr_());
     return;
   }
