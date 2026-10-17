@@ -232,6 +232,7 @@ function syncGuestCountsFromLH_() {
     const name = String(row[cName] || '').trim();
     const room = String(row[cRoom] || '');
     if (!name || /cancel|ยกเลิก/i.test(room)) continue;
+    if (/mycondo/i.test(room)) continue; // ห้อง Mycondo (Airbnb direct) ไม่อยู่ใน LH — จำนวนแขกมาจากอีเมลฝั่งบอท
     const checkOut = lhCellIso_(row[cOut]);
     if (!checkOut || checkOut < today) continue; // เฉพาะที่ยังไม่เช็คเอาท์ (ปัจจุบัน/อนาคต)
     if (hasCols && !(lhBlank_(row[gi.adults]) && lhBlank_(row[gi.children]) && lhBlank_(row[gi.total]))) continue; // มีค่าแล้ว ไม่แตะ
