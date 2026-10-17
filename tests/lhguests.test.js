@@ -82,4 +82,11 @@ reset([['209 Radiance', 'Anna Smith', '2026-12-01', '2026-12-20', 'Airbnb', 'R1'
 nextPages = [ok(page([row('Confirmed', 'Smith, Anna', 'A', 1, 0, 0, '01-12-26', '209')], 5)),
              ok(page([row('Confirmed', 'Smith, Anna', 'A', 1, 0, 0, '01-12-26', '209')], 1)), ok(page([row('Confirmed', 'Jones, Bob', 'B', 2, 0, 0, '30-12-26', '210')], 1))];
 r = syncGuestCountsFromLH_(); assert.strictEqual(r.updated, 2); assert.ok(urls.length >= 3);
+// สำเนียง: LH "Rudavičius, Andrius" ↔ ชีต "Andrius Rudavičius" (precomposed/decomposed/ตัดสำเนียง)
+{
+  const lh = lhParseReservations_(page([row('Confirmed', 'Rudavi\u010dius, Andrius', 'ABB-X', 1, 0, 0, '16-10-26', '209 Radiance')])).rows;
+  for (const nm of ['Andrius Rudavi\u010dius', 'Andrius Rudavic\u030cius', 'Andrius Rudavicius']) {
+    assert.deepStrictEqual(lhMatchGuests_({ name: nm, checkIn: '2026-10-16', room: '209 Radiance' }, lh), { adults: 1, children: 0 });
+  }
+}
 console.log('LHGuests tests OK');

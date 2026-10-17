@@ -80,7 +80,8 @@ function lhParseReservations_(html) {
 
 // ─────────────── จับคู่ชื่อ ───────────────
 function lhNameTokens_(name) {
-  return String(name || '').toLowerCase().split(/[\s,\/]+/)
+  // เทียบแบบไม่สนสำเนียง/รูปแบบ Unicode (č ตัวเดียว = c+เครื่องหมายแยก = c)
+  return String(name || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().split(/[\s,\/]+/)
     .map(function (t) { return t.replace(/[^\p{L}\p{N}]/gu, ''); })
     .filter(Boolean).sort();
 }
