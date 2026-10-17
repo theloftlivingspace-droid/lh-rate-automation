@@ -25,3 +25,18 @@
 
 `popup.js` มี `SYNC_TOKEN` ฝังอยู่ในโค้ด (จำเป็น เพราะเป็น client-side extension) —
 repo นี้เป็น private repo อยู่แล้ว แต่ถ้าจะแชร์โค้ดนี้ต่อที่อื่นต้องเปลี่ยน token ใหม่ก่อน
+
+
+## Auto-sync (v1.1)
+
+`background.js` (service worker) ดักคุกกี้ `_littlehotelier_session` — พอ login+MFA เสร็จและค่านิ่ง ~30 วินาที
+จะเช็คว่าล็อกอินจริง (เปิดหน้า inventory แล้วเจอ `rate_plan_dates`) แล้วส่งเข้า Apps Script เอง ไม่ต้องกดปุ่ม
+
+- หลังแก้โค้ด ต้อง reload extension ที่ `chrome://extensions` หนึ่งครั้ง
+- ต้องเปิดเบราว์เซอร์ไว้ตอน login; ไอคอนขึ้น ✓ เขียว = sync สำเร็จ, ! แดง = ล้มเหลว (ดูเหตุผลใน
+  `chrome.storage.local` key `lastAutoSync` ผ่าน service worker console)
+- ไม่ sync ซ้ำตาม timer (กัน keep-alive ฝั่ง Apps Script โดนค่าเก่าทับ) และไม่สั่ง push อัตโนมัติ —
+  ถ้า login หลังรอบ 22:30 ให้กดปุ่ม "Sync + Push Rate" ใน popup
+- ค่าตั้งต้น (URL/token) ย้ายมาอยู่ใน `config.js`
+- LH session ยังหมดที่ ~4 ชม. หลัง login (ข้อจำกัดฝั่ง LH) — ควร login หลัง ~19:00
+- ถ้าหน้า login/MFA ของ LH มีตัวเลือก "จำอุปกรณ์นี้" ให้ติ๊ก เพื่อลดขั้น login รายวัน

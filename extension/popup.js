@@ -1,13 +1,4 @@
-// ── ตั้งค่า 3 บรรทัดนี้ก่อนใช้งาน ──
-// WEB_APP_URL:         ได้จากตอน deploy Apps Script เป็น Web App (Deploy > New deployment > Web app)
-//                      ต้องลงท้ายด้วย /exec — ใช้ /exec เดียวกันทั้ง sync cookie (doPost) และ push rate (doGet)
-// SYNC_TOKEN:          ต้องตรงกับค่าที่ตั้งไว้ใน Script Properties -> SESSION_SYNC_TOKEN
-// REMOTE_TRIGGER_TOKEN: ต้องตรงกับค่าที่ตั้งไว้ใน Script Properties -> REMOTE_TRIGGER_TOKEN (ดูได้จาก
-//                      Apps Script editor > Project Settings > Script Properties) — เอาไว้สั่ง push rate
-//                      หลัง sync cookie สำเร็จ ต้องใส่ค่าจริงแทน "PASTE_REMOTE_TRIGGER_TOKEN_HERE" ก่อนใช้งาน
-const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx_z1v7FEqmthTKfZPoLsyqdIc4NJENXpfsZ315dDLzdIHwznSsOQqnG1UxkyqhOCk/exec";
-const SYNC_TOKEN = "KTxEAEYfhxYqlbVrKp-t00BkNSdqJ8iv92gO-3l8ut0";
-const REMOTE_TRIGGER_TOKEN = "Lft6801-rXk9pQ2vN7mZs4Tw8Ye3Jc5Hb1Fg0Dq";
+// ค่าตั้งต้น (WEB_APP_URL, SYNC_TOKEN, REMOTE_TRIGGER_TOKEN) อยู่ใน config.js
 
 const btn = document.getElementById("syncBtn");
 const statusEl = document.getElementById("status");
