@@ -110,6 +110,10 @@ logs = []; r = syncGuestCountsFromLH_();
 assert.strictEqual(r.updated, 0); // ยกเลิกถูกตัด + การจอง 01-12→20-12 ไม่ครอบคลุมวันที่ 21
 assert.ok(logs.some(l => /Ghost Guest/.test(l) && /ไม่มีการจองชื่อนี้/.test(l)), 'ต้องบอกว่า LH ไม่มีชื่อนี้');
 assert.ok(logs.some(l => /Anna Smith/.test(l) && /ไม่ตรงเงื่อนไข/.test(l) && /2026-12-01/.test(l)), 'ต้องบอกวันที่ที่ LH มีชื่อนี้');
+// ห้อง Mycondo ไม่อยู่ใน LH → ไม่นับว่าต้องเติม และไม่ยิงคำขอไป LH
+reset([['363 Mycondo', 'Mauro Rivera', '2026-12-16', '2026-12-30', 'Airbnb', 'R9', '', '']]);
+server = serveFrom([]); urls = []; r = syncGuestCountsFromLH_();
+assert.deepStrictEqual(r, { needed: 0, updated: 0, unmatched: 0 }); assert.strictEqual(urls.length, 0);
 server = null;
 
 // สำเนียง: LH "Rudavičius, Andrius" ↔ ชีต "Andrius Rudavičius" (precomposed/decomposed/ตัดสำเนียง)
