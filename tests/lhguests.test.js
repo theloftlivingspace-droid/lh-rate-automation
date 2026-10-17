@@ -53,7 +53,7 @@ assert.deepStrictEqual(r, { needed: 2, updated: 1, unmatched: 1 });
 const ws = written.map(w => w.join(':'));
 assert.deepStrictEqual(ws.slice(-3), ['2:9:2', '2:10:1', '2:11:3']); // แถว 2 → Adults/Children/Guests
 assert.ok(!written.some(w => w[0] === 3), 'ห้ามทับแถวที่มีค่าแล้ว');
-assert.ok(/date_from%5D=2026-12-16/.test(urls[0]) && /status%5D=confirmed/.test(urls[0]) && /properties\/14501\/reservations/.test(urls[0]));
+assert.ok(/date_from%5D=2026-12-16/.test(urls[0]) && /status%5D=(&|$)/.test(urls[0]) && /properties\/14501\/reservations/.test(urls[0]));
 
 // ยังไม่มีคอลัมน์ Adults/Children/Guests → สร้างหัวคอลัมน์ให้แล้วเติม
 reset([['209 Radiance', 'Anna Smith', '2026-12-16', '2026-12-20', 'Airbnb', 'R1', '', '']], HDR8);
@@ -88,5 +88,11 @@ r = syncGuestCountsFromLH_(); assert.strictEqual(r.updated, 2); assert.ok(urls.l
   for (const nm of ['Andrius Rudavi\u010dius', 'Andrius Rudavic\u030cius', 'Andrius Rudavicius']) {
     assert.deepStrictEqual(lhMatchGuests_({ name: nm, checkIn: '2026-10-16', room: '209 Radiance' }, lh), { adults: 1, children: 0 });
   }
+}
+// สถานะอื่น (เช็คอินแล้ว/Direct) ใช้ได้ แต่ Cancelled/No show ห้ามเอามาจับคู่
+{
+  const rows = lhParseReservations_(page([row('Checked In', 'Harasawa, Ryo', 'DBK-1', 2, 0, 0, '12-10-26', '113 Legacy'), row('Cancelled', 'Harasawa, Ryo', 'DBK-0', 9, 9, 0, '12-10-26', '113 Legacy')])).rows;
+  assert.deepStrictEqual(lhMatchGuests_({ name: 'RYO HARASAWA', checkIn: '2026-10-12', room: '113 Legacy' }, rows), { adults: 2, children: 0 });
+  assert.strictEqual(lhMatchGuests_({ name: 'RYO HARASAWA', checkIn: '2026-10-12', room: '113' }, rows.slice(1)), null);
 }
 console.log('LHGuests tests OK');

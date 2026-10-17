@@ -103,7 +103,7 @@ function lhRoomNo_(room) {
 function lhMatchGuests_(sheetRow, lhRows) {
   const mine = lhNameTokens_(sheetRow.name);
   let cands = lhRows.filter(function (r) {
-    return r.hasCounts && r.checkIn === sheetRow.checkIn && lhNamesMatch_(mine, lhNameTokens_(r.name));
+    return r.hasCounts && !/cancel|no.?show/i.test(r.status) && r.checkIn === sheetRow.checkIn && lhNamesMatch_(mine, lhNameTokens_(r.name));
   });
   if (cands.length > 1) { // จองหลายห้อง/ชื่อซ้ำวันเดียวกัน → แยกด้วยเลขห้อง
     const rn = lhRoomNo_(sheetRow.room);
@@ -121,7 +121,7 @@ function lhReservationsUrl_(fromIso, toIso) {
   const disp = function (iso) { return Utilities.formatDate(new Date(iso + 'T00:00:00+07:00'), 'Asia/Bangkok', 'dd MMM yyyy'); };
   const q = [
     ['guest_last_name', ''], ['booking_reference_id', ''], ['invoice_number', ''],
-    ['date_type', 'CheckIn'], ['status', 'confirmed'],
+    ['date_type', 'CheckIn'], ['status', ''], // All — ไม่กรอง confirmed เพราะการจองที่เช็คอินแล้ว/Direct อาจมีสถานะอื่น
     ['date_from_display', disp(fromIso)], ['date_from', fromIso],
     ['date_to_display', disp(toIso)], ['date_to', toIso],
     ['channel_id', ''],
