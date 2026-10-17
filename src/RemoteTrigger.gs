@@ -84,6 +84,14 @@ function computeThenPush() {
 // ระหว่างที่ compute กำลัง clearContents()+เขียนทับอยู่ — เสี่ยง push ข้อมูลว่าง/ไม่ครบ
 // รวมเป็น trigger เดียวที่รัน compute แล้วต่อ push แบบ sequential ในฟังก์ชันเดียวกัน
 // การันตีลำดับ 100% ไม่มี race จาก trigger timing อีกต่อไป
+//
+// อัปเดต 17 ต.ค. 2026: ย้ายจาก ~02:00 มารัน ~22:30 — LH ตัด session แบบ absolute ราว 4 ชม.
+// หลัง login+MFA (keep-alive/หมุนคุกกี้ไม่ช่วย) ถ้า sync ตอนเช้า session จะตายก่อนรอบตี 2
+// ให้ sync คุกกี้ (extension) หลัง ~19:00 แล้วรอบ push ตอน 22:30 จะอยู่ในอายุ 4 ชม.
+// หมายเหตุ: compute รันก่อนเที่ยงคืน จึงไม่เห็นการจองที่เข้ามาหลัง 22:30 (รอบคืนถัดไปจะอัปเดตให้)
+// ปรับเวลาได้ที่ค่าคงที่ด้านล่าง แล้วรัน setupNightlyComputeAndPushTrigger() ใหม่ใน Apps Script editor
+const NIGHTLY_PUSH_HOUR = 22;
+const NIGHTLY_PUSH_MINUTE = 30; // Apps Script รับเฉพาะ 0/15/30/45
 function setupNightlyComputeAndPushTrigger() {
   ScriptApp.getProjectTriggers().forEach(t => {
     const fn = t.getHandlerFunction();
@@ -94,9 +102,9 @@ function setupNightlyComputeAndPushTrigger() {
   ScriptApp.newTrigger('computeThenPush')
     .timeBased()
     .everyDays(1)
-    .atHour(2)
-    .nearMinute(0)
+    .atHour(NIGHTLY_PUSH_HOUR)
+    .nearMinute(NIGHTLY_PUSH_MINUTE)
     .inTimezone('Asia/Bangkok')
     .create();
-  Logger.log('ตั้ง trigger เรียบร้อย: computeThenPush ทุกคืน ~02:00 (ลบ trigger แยกของ compute/push เดิมทิ้งแล้ว)');
+  Logger.log('ตั้ง trigger เรียบร้อย: computeThenPush ทุกคืน ~' + NIGHTLY_PUSH_HOUR + ':' + String(NIGHTLY_PUSH_MINUTE).padStart(2, '0') + ' (ลบ trigger แยกของ compute/push เดิมทิ้งแล้ว)');
 }
