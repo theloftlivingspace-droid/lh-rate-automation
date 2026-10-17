@@ -21,6 +21,7 @@
 
 const LH_GUESTS_SHEET_NAME = 'Sheet1';
 const LH_GUESTS_SYNC_EVERY_MS = 2 * 3600 * 1000;
+const LH_GUESTS_LOOKBACK_DAYS = 30; // ดึง LH ย้อนก่อนเช็คอินแรกที่ต้องเติม (ให้จับคู่แถวที่ถูกแยกจากการย้ายห้องได้)
 const LH_GUESTS_WINDOW_DAYS = 31; // ช่วงวันที่ต่อ 1 คำขอ (ถ้าจำนวนที่ LH บอกไม่ตรงกับแถวที่อ่านได้ จะแบ่งครึ่งซ้ำ)
 const LH_GUESTS_HEADERS = { adults: 'Adults', children: 'Children', total: 'Guests' };
 
@@ -69,6 +70,7 @@ function lhParseReservations_(html) {
       name: lhText_(lhCell_(r, 'name')),
       reference: refM ? refM[1].trim() : '',
       checkIn: lhShortDateToIso_(lhText_(lhCell_(r, 'check_in'))),
+      checkOut: lhShortDateToIso_(lhText_(lhCell_(r, 'check_out'))),
       room: lhText_(lhCell_(r, 'room_name')),
       adults: adults,
       children: children + infants, // ทารกนับรวมในช่อง "เด็ก" (เหมือนฝั่งบอท)
@@ -102,9 +104,17 @@ function lhRoomNo_(room) {
 // sheetRow = { name, checkIn(ISO), room } → { adults, children } | null
 function lhMatchGuests_(sheetRow, lhRows) {
   const mine = lhNameTokens_(sheetRow.name);
-  let cands = lhRows.filter(function (r) {
-    return r.hasCounts && !/cancel|no.?show/i.test(r.status) && r.checkIn === sheetRow.checkIn && lhNamesMatch_(mine, lhNameTokens_(r.name));
+  const nameRows = lhRows.filter(function (r) {
+    return r.hasCounts && !/cancel|no.?show/i.test(r.status) && lhNamesMatch_(mine, lhNameTokens_(r.name));
   });
+  let cands = nameRows.filter(function (r) { return r.checkIn === sheetRow.checkIn; });
+  if (!cands.length) {
+    // แถวที่ถูกแยกจากการย้ายห้อง (RoomMove: ช่วงต่อ resId ลงท้าย -B ใช้วันย้ายเป็นเช็คอิน) →
+    // เช็คอินในชีตอยู่กลางการเข้าพักของการจองเดิมใน LH
+    cands = nameRows.filter(function (r) {
+      return r.checkOut && r.checkIn < sheetRow.checkIn && sheetRow.checkIn < r.checkOut;
+    });
+  }
   if (cands.length > 1) { // จองหลายห้อง/ชื่อซ้ำวันเดียวกัน → แยกด้วยเลขห้อง
     const rn = lhRoomNo_(sheetRow.room);
     const byRoom = rn ? cands.filter(function (r) { return lhRoomNo_(r.room) === rn; }) : [];
@@ -114,6 +124,16 @@ function lhMatchGuests_(sheetRow, lhRows) {
   const first = cands[0];
   const same = cands.every(function (r) { return r.adults === first.adults && r.children === first.children; });
   return same ? { adults: first.adults, children: first.children } : null; // ไม่แน่ใจ = ไม่เดา
+}
+
+// อธิบายว่าทำไมแถวนี้จับคู่ไม่ได้ (ไว้อ่านใน Logs): ไม่พบชื่อ / พบชื่อแต่วันไม่ตรง / กำกวม
+function lhExplainUnmatched_(n, lhRows) {
+  const mine = lhNameTokens_(n.name);
+  const same = lhRows.filter(function (r) { return lhNamesMatch_(mine, lhNameTokens_(r.name)); });
+  if (!same.length) return 'LH ไม่มีการจองชื่อนี้ในช่วงที่ดึง (ชื่อในชีต/LH ต่างกัน หรือช่วงวันที่/สถานะไม่ครอบคลุม)';
+  return 'LH มีชื่อนี้ แต่ไม่ตรงเงื่อนไข: ' + same.slice(0, 3).map(function (r) {
+    return '[' + r.checkIn + '→' + r.checkOut + ' ' + r.room + ' ' + r.status + ' ' + (r.hasCounts ? r.adults + '+' + r.children : 'ไม่มีจำนวนแขก') + ']';
+  }).join(' ');
 }
 
 // ─────────────── เรียก LH ───────────────
@@ -223,7 +243,8 @@ function syncGuestCountsFromLH_() {
 
   // ดึง LH ครอบช่วงเช็คอินของแถวที่ต้องเติม แบ่งเป็นก้อนละ LH_GUESTS_WINDOW_DAYS วัน
   const ins = need.map(function (n) { return n.checkIn; }).sort();
-  const minIn = ins[0], maxIn = ins[ins.length - 1];
+  const minIn = lhAddDays_(ins[0], -LH_GUESTS_LOOKBACK_DAYS); // ย้อนไปเผื่อแถวที่ถูกแยก (เช็คอินเดิมใน LH เร็วกว่าในชีต)
+  const maxIn = ins[ins.length - 1];
   let lhRows = [];
   for (let from = minIn; from <= maxIn; from = lhAddDays_(from, LH_GUESTS_WINDOW_DAYS + 1)) {
     let to = lhAddDays_(from, LH_GUESTS_WINDOW_DAYS);
@@ -238,7 +259,11 @@ function syncGuestCountsFromLH_() {
   let updated = 0, unmatched = 0;
   need.forEach(function (n) {
     const g = lhMatchGuests_(n, lhRows);
-    if (!g || g.adults + g.children <= 0) { unmatched++; return; }
+    if (!g || g.adults + g.children <= 0) {
+      unmatched++;
+      if (unmatched <= 10) Logger.log('⚠️ จับคู่ไม่ได้: แถว ' + n.rowNumber + ' | ' + n.room + ' | ' + n.name + ' | เช็คอิน ' + n.checkIn + ' → ' + lhExplainUnmatched_(n, lhRows));
+      return;
+    }
     // อ่านซ้ำก่อนเขียน: ถ้าบอท/แอดมินเพิ่งเติมไประหว่างนี้ → ไม่ทับ
     const cur = sh.getRange(n.rowNumber, 1, 1, Math.max(idx.adults, idx.children, idx.total) + 1).getValues()[0];
     if (!(lhBlank_(cur[idx.adults]) && lhBlank_(cur[idx.children]) && lhBlank_(cur[idx.total]))) return;
