@@ -41,7 +41,7 @@ reset(); nextResp=[R(503),R(503),R(503)]; keepLhSessionAlive(); assert.strictEqu
 reset(); nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(syncCalls,0); assert.strictEqual(notified.length,1); assert.ok(store.LH_SESSION_EXPIRED_AT);
 // ไม่แจ้งซ้ำจนกว่าจะ sync ใหม่
 nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,1); 
-store.LH_SESSION_SET_AT='2026-10-17T09:00:00.000Z'; nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,2);
+store.LH_SESSION_SET_AT=new Date(Date.now()+60000).toISOString(); // sync ใหม่ = หลังเวลาที่แจ้งหมดอายุ (ใช้เวลาปัจจุบัน ไม่ฮาร์ดโค้ด) nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,2);
 // quiet hours: ตรวจเจอแต่ไม่แจ้ง และไม่ตั้ง flag
 reset(); hour=23; nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,0); assert.ok(!store.LH_SESSION_EXPIRED_AT);
 reset(); hour=3; nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,0);

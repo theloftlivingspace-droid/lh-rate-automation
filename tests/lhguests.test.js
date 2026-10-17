@@ -1,8 +1,8 @@
 // รัน: node tests/lhguests.test.js  — mock Sheets/LH ทั้งหมด (fixture สังเคราะห์ตามโครงสร้างหน้า Reservations จริง)
 const fs = require('fs'), path = require('path'), assert = require('assert');
-let sheetValues, written, nextPages, urls, hour = 14;
+let sheetValues, written, nextPages, urls, hour = 14, server = null, logs = [];
 global.LH_BASE_URL = 'https://x'; global.LH_PROPERTY_ID = '14501'; global.SHEET_ID = 'sid';
-global.Logger = { log() {} };
+global.Logger = { log(m) { logs.push(String(m)); } };
 global.Utilities = {
   sleep() {},
   formatDate(d, tz, f) { // พอสำหรับที่ใช้ในโค้ด (เขตเวลา +07:00)
@@ -14,7 +14,7 @@ global.Utilities = {
 };
 global.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };
 global.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null, setProperty() {} }) };
-global.lhFetch_ = (url) => { urls.push(url); const p = nextPages.shift(); return { getResponseCode: () => p.code, getContentText: () => p.html }; };
+global.lhFetch_ = (url) => { urls.push(url); const p = server ? server(url) : nextPages.shift(); return { getResponseCode: () => p.code, getContentText: () => p.html }; };
 global.SpreadsheetApp = { openById: () => ({ getSheetByName: () => ({
   getDataRange: () => ({ getValues: () => sheetValues.map(r => r.slice()) }),
   getRange: (r, c, nr, nc) => ({
@@ -53,7 +53,7 @@ assert.deepStrictEqual(r, { needed: 2, updated: 1, unmatched: 1 });
 const ws = written.map(w => w.join(':'));
 assert.deepStrictEqual(ws.slice(-3), ['2:9:2', '2:10:1', '2:11:3']); // แถว 2 → Adults/Children/Guests
 assert.ok(!written.some(w => w[0] === 3), 'ห้ามทับแถวที่มีค่าแล้ว');
-assert.ok(/date_from%5D=2026-12-16/.test(urls[0]) && /status%5D=(&|$)/.test(urls[0]) && /properties\/14501\/reservations/.test(urls[0]));
+assert.ok(/date_from%5D=2026-11-16/.test(urls[0]) && /status%5D=(&|$)/.test(urls[0]) && /properties\/14501\/reservations/.test(urls[0]));
 
 // ยังไม่มีคอลัมน์ Adults/Children/Guests → สร้างหัวคอลัมน์ให้แล้วเติม
 reset([['209 Radiance', 'Anna Smith', '2026-12-16', '2026-12-20', 'Airbnb', 'R1', '', '']], HDR8);
@@ -77,11 +77,41 @@ assert.strictEqual(lhMatchGuests_({ name: 'Kim Lee', checkIn: '2026-12-16', room
 // ชื่อสั้นเกิน (1 token) ไม่ใช้ subset
 assert.strictEqual(lhMatchGuests_({ name: 'Anna', checkIn: '2026-12-16', room: '1' }, lhParseReservations_(page([row('Confirmed', 'Smith, Anna', 'X', 2, 0, 0, '16-12-26', '1')])).rows), null);
 
-// แบ่งช่วงวันเมื่อ LH บอกจำนวนไม่ตรงกับแถวที่อ่านได้ (แบ่งหน้า)
+// ---- mock ที่ตอบตามช่วงวันที่ใน URL (ไม่พึ่งลำดับคำขอ) ----
+const isoOf = (ci) => '20' + ci.slice(6, 8) + '-' + ci.slice(3, 5) + '-' + ci.slice(0, 2);
+const serveFrom = (defs, lie) => (url) => {
+  const f = url.match(/date_from%5D=(\d{4}-\d\d-\d\d)/)[1], t = url.match(/date_to%5D=(\d{4}-\d\d-\d\d)/)[1];
+  const inRange = defs.filter(d => isoOf(d[6]) >= f && isoOf(d[6]) <= t);
+  const wide = (new Date(t) - new Date(f)) / 86400000 > 7;
+  return ok(page(inRange.map(d => row(...d)), lie && wide ? inRange.length + 1 : undefined));
+};
+
+// แบ่งช่วงวันเมื่อ LH บอกจำนวนไม่ตรงกับแถวที่อ่านได้ (แบ่งหน้า) — ต้องยังได้ครบ
 reset([['209 Radiance', 'Anna Smith', '2026-12-01', '2026-12-20', 'Airbnb', 'R1', '', ''], ['210 Radiance', 'Bob Jones', '2026-12-30', '2026-12-31', 'Airbnb', 'R2', '', '']]);
-nextPages = [ok(page([row('Confirmed', 'Smith, Anna', 'A', 1, 0, 0, '01-12-26', '209')], 5)),
-             ok(page([row('Confirmed', 'Smith, Anna', 'A', 1, 0, 0, '01-12-26', '209')], 1)), ok(page([row('Confirmed', 'Jones, Bob', 'B', 2, 0, 0, '30-12-26', '210')], 1))];
+server = serveFrom([['Confirmed', 'Smith, Anna', 'A', 1, 0, 0, '01-12-26', '209'], ['Confirmed', 'Jones, Bob', 'B', 2, 0, 0, '30-12-26', '210']], true);
 r = syncGuestCountsFromLH_(); assert.strictEqual(r.updated, 2); assert.ok(urls.length >= 3);
+
+// แถวที่ถูกแยกจากการย้ายห้อง (ช่วงต่อ -B ใช้วันย้ายเป็นเช็คอิน): LH เช็คอิน 10-12 ออก 20-12, ชีตช่วงต่อเช็คอิน 15-12
+reset([['305 Luxury', 'Anna Smith', '2026-12-15', '2026-12-20', 'Airbnb', 'R1-B', '', '']]);
+server = serveFrom([['Confirmed', 'Smith, Anna', 'ABB-9', 2, 1, 0, '10-12-26', '209 Radiance']]);
+logs = []; r = syncGuestCountsFromLH_();
+assert.deepStrictEqual(r, { needed: 1, updated: 1, unmatched: 0 }); assert.deepStrictEqual(sheetValues[1].slice(8), [2, 1, 3]);
+assert.ok(/date_from%5D=2026-11-15/.test(urls[0]), 'ต้องดึงย้อนหลังเพื่อเจอการจองเดิม');
+// เช็คอินอยู่นอกช่วงการเข้าพัก (ก่อนเช็คอิน LH / ตรงวันเช็คเอาท์) → ห้ามจับคู่
+for (const ci of ['2026-12-09', '2026-12-20']) {
+  reset([['305 Luxury', 'Anna Smith', ci, '2026-12-25', 'Airbnb', 'R1-B', '', '']]);
+  server = serveFrom([['Confirmed', 'Smith, Anna', 'ABB-9', 2, 1, 0, '10-12-26', '209 Radiance']]);
+  r = syncGuestCountsFromLH_(); assert.strictEqual(r.updated, 0, 'ไม่ควรจับคู่ ' + ci);
+}
+// ยกเลิกไม่ถูกนำมาจับคู่ + แถวที่ยังจับไม่ได้ต้องมีล็อกอธิบายสาเหตุ
+reset([['209 Radiance', 'Anna Smith', '2026-12-21', '2026-12-25', 'Airbnb', 'R1', '', ''], ['300 Luxury', 'Ghost Guest', '2026-12-21', '2026-12-25', 'Airbnb', 'R2', '', '']]);
+server = serveFrom([['Cancelled', 'Smith, Anna', 'ABB-1', 5, 0, 0, '21-12-26', '209 Radiance'], ['Confirmed', 'Smith, Anna', 'ABB-3', 2, 0, 0, '01-12-26', '209 Radiance']]);
+logs = []; r = syncGuestCountsFromLH_();
+assert.strictEqual(r.updated, 0); // ยกเลิกถูกตัด + การจอง 01-12→20-12 ไม่ครอบคลุมวันที่ 21
+assert.ok(logs.some(l => /Ghost Guest/.test(l) && /ไม่มีการจองชื่อนี้/.test(l)), 'ต้องบอกว่า LH ไม่มีชื่อนี้');
+assert.ok(logs.some(l => /Anna Smith/.test(l) && /ไม่ตรงเงื่อนไข/.test(l) && /2026-12-01/.test(l)), 'ต้องบอกวันที่ที่ LH มีชื่อนี้');
+server = null;
+
 // สำเนียง: LH "Rudavičius, Andrius" ↔ ชีต "Andrius Rudavičius" (precomposed/decomposed/ตัดสำเนียง)
 {
   const lh = lhParseReservations_(page([row('Confirmed', 'Rudavi\u010dius, Andrius', 'ABB-X', 1, 0, 0, '16-10-26', '209 Radiance')])).rows;
