@@ -49,6 +49,16 @@ function isSpecialPeakDate(date) {
   return SPECIAL_PEAK_RANGES.some(r => dStr >= r.start && dStr <= r.end);
 }
 
+// ── Low season override: บังคับใช้ rate low season ชั่วคราว ถึงสิ้นเดือน พ.ย. 2026 ──
+// เพิ่ม 31 ต.ค. 2026 ตามคำสั่ง Nathan — ปกติ พ.ย. = high (x1.25) ช่วงนี้ให้ใช้ low (x0.85) แทน
+// ไม่ทับ peak (ลอยกระทง 25-27 พ.ย. ยังเป็น peak) หมดช่วงแล้วกลับใช้ logic เดิมเอง ไม่ต้องมาปิดมือ
+const LOW_SEASON_OVERRIDE_START = '2026-11-01';
+const LOW_SEASON_OVERRIDE_END = '2026-11-30';
+function isLowSeasonOverrideDate_(date) {
+  const dStr = Utilities.formatDate(date, 'Asia/Bangkok', 'yyyy-MM-dd');
+  return dStr >= LOW_SEASON_OVERRIDE_START && dStr <= LOW_SEASON_OVERRIDE_END;
+}
+
 // ── Season multiplier ──
 const SEASON_MULT = { low: 0.85, normal: 1.0, high: 1.25, peak: 1.5 };
 function getSeasonForDate(date) {
@@ -56,6 +66,7 @@ function getSeasonForDate(date) {
   const songkran = m === 3 && d >= 13 && d <= 14;
   const newyear = (m === 11 && d >= 30) || (m === 0 && d <= 2);
   if (songkran || newyear || isSpecialPeakDate(date)) return 'peak';
+  if (isLowSeasonOverrideDate_(date)) return 'low';
   if (m >= 10 || m <= 1) return 'high';
   if (m >= 4 && m <= 8) return 'low';
   return 'normal';
