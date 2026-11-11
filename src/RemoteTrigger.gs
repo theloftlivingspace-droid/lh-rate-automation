@@ -89,9 +89,13 @@ function computeThenPush() {
 // หลัง login+MFA (keep-alive/หมุนคุกกี้ไม่ช่วย) ถ้า sync ตอนเช้า session จะตายก่อนรอบตี 2
 // ให้ sync คุกกี้ (extension) หลัง ~19:00 แล้วรอบ push ตอน 22:30 จะอยู่ในอายุ 4 ชม.
 // หมายเหตุ: compute รันก่อนเที่ยงคืน จึงไม่เห็นการจองที่เข้ามาหลัง 22:30 (รอบคืนถัดไปจะอัปเดตให้)
+//
+// อัปเดต 11 พ.ย. 2026: ย้ายจาก ~22:30 มารัน ~10:00 ทุกวัน (ตามที่ Nathan สั่ง) —
+// ให้ login+MFA แล้ว sync คุกกี้ (extension) ช่วงเช้าก่อน 10:00 (เช่น 08:30-09:30)
+// รอบ push ตอน 10:00 จะอยู่ในอายุ session ~4 ชม. และ compute เห็นการจองถึงเช้าวันนั้น
 // ปรับเวลาได้ที่ค่าคงที่ด้านล่าง แล้วรัน setupNightlyComputeAndPushTrigger() ใหม่ใน Apps Script editor
-const NIGHTLY_PUSH_HOUR = 22;
-const NIGHTLY_PUSH_MINUTE = 30; // Apps Script รับเฉพาะ 0/15/30/45
+const NIGHTLY_PUSH_HOUR = 10;
+const NIGHTLY_PUSH_MINUTE = 0; // Apps Script รับเฉพาะ 0/15/30/45
 function setupNightlyComputeAndPushTrigger() {
   ScriptApp.getProjectTriggers().forEach(t => {
     const fn = t.getHandlerFunction();
