@@ -7,6 +7,6 @@ const REMOTE_TRIGGER_TOKEN = "Lft6801-rXk9pQ2vN7mZs4Tw8Ye3Jc5Hb1Fg0Dq";
 
 // ใช้เช็คว่าคุกกี้ในเบราว์เซอร์ "ล็อกอินอยู่จริง" ก่อน auto-sync (ต้องตรงกับ LHRateAutomation.gs / LHSession.gs)
 const LH_ORIGIN = "https://apac.littlehotelier.com";
-const LH_PROPERTY_ID = "14501";
+const LH_PROPERTY_ID = "676149e8-bd5e-4480-abbc-5b538cc8b55f"; // เปลี่ยนจาก 14501 เมื่อ 19 พ.ย. 2026 (ต้อง reload extension)
 const LH_COOKIE_NAME = "_littlehotelier_session";
 const LH_AUTH_MARKER = "rate_plan_dates";

@@ -16,7 +16,8 @@
  */
 
 const LH_SHEET_ID = '1gjYsvg7YZR7hvjfsQPIy78TJhK49RKIDFQn90bREus8'; // ไฟล์ output แยก (ไม่ใช่ Master) — อ่าน Target_Rates + เขียน Rate_Diff_Check ที่นี่ (แยก 7 ส.ค. 2026)
-const LH_PROPERTY_ID = '14501';
+// 19 พ.ย. 2026: LH เปลี่ยนรหัส property ในลิงก์ extranet จากเลข (14501) เป็น UUID — เลขเดิมได้ 404
+const LH_PROPERTY_ID = '676149e8-bd5e-4480-abbc-5b538cc8b55f';
 const LH_BASE_URL = 'https://apac.littlehotelier.com';
 const DRY_RUN = false; // ✅ เปิดใช้งานจริงหลังทดสอบ dry run ผ่านแล้ว (2026-07-13)
 
