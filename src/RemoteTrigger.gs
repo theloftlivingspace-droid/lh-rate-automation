@@ -40,7 +40,9 @@ function doGet(e) {
   }
 
   const action = params.action;
-  const validActions = { pushRates: 'pushRatesToLH', computeAndPush: 'computeThenPush', diffRates: 'diffRatesVsLH' };
+  // one-off ใช้ฟังก์ชันห่อ (…Once) ที่ชื่อต่างจากตัวจริงเสมอ — กัน doGet ไปลบ trigger กลางคืน
+  // ของ computeThenPush / pushRatesToLH (ลบได้เฉพาะ one-off ของตัวเอง)
+  const validActions = { pushRates: 'pushRatesToLHOnce', computeAndPush: 'computeThenPushOnce', diffRates: 'diffRatesVsLHOnce' };
   const handlerFn = validActions[action];
   if (!handlerFn) {
     return respond({ ok: false, error: 'action ไม่ถูกต้อง — ใช้ pushRates หรือ computeAndPush' });
@@ -50,6 +52,8 @@ function doGet(e) {
     // one-off trigger รันภายใน ~1 วินาที — กัน doGet timeout ตอนงานจริงใช้เวลานาน
     // อัปเดต 9 ส.ค. 2026: ลบ trigger ค้างของ handler เดิมก่อนสร้างใหม่เสมอ (เหมือน SessionSync.gs)
     // กัน trigger สะสมจนชนลิมิต 20 trigger/สคริปต์
+    // อัปเดต 19 พ.ย. 2026: handler ตรงนี้เป็นตัวห่อ …Once เท่านั้น — เดิมใช้ชื่อฟังก์ชันจริง ทำให้
+    // computeAndPush/diffRates ลบ trigger กลางคืนของ computeThenPush ทิ้งทุกครั้งที่กดปุ่ม
     ScriptApp.getProjectTriggers().forEach(t => {
       if (t.getHandlerFunction() === handlerFn) ScriptApp.deleteTrigger(t);
     });
@@ -75,6 +79,11 @@ function computeThenPush() {
   computeTargetRates();
   pushRatesToLH();
 }
+
+// ── ตัวห่อสำหรับ one-off trigger จาก doGet (ดูเหตุผลที่ validActions) ──
+function pushRatesToLHOnce() { pushRatesToLH(); }
+function computeThenPushOnce() { computeThenPush(); }
+function diffRatesVsLHOnce() { diffRatesVsLH(); }
 
 // ── ตั้ง trigger คืนละ 1 ตัว รัน computeThenPush (แทน 2 trigger แยกของ compute/push) ──
 // อัปเดต 9 ส.ค. 2026: เดิมใช้ trigger แยก 2 ตัว (computeTargetRates atHour(2) ไม่ได้ตั้ง
