@@ -43,6 +43,16 @@ const BLACKOUT_DATES = new Set([
   '2026-12-15', '2026-12-16', // เพิ่ม 6 ต.ค. 2026 ตามคำสั่ง Nathan — ตั้งราคามือไว้สูงใน LH (พบจาก Rate_Diff_Check 17 ก.ย.: LH 650-1200 vs target 500-650)
 ]);
 
+// ช่วงวันที่ที่ตั้งราคามือไว้ — ข้ามทุกห้อง ไม่ push ทับ (ใช้ทั้งตอนส่งจริงและ diffRatesVsLH)
+// เพิ่ม 19 พ.ย. 2026 ตามคำสั่ง Nathan: ปรับลดราคามือไว้เองช่วง พ.ย.–ธ.ค. 2026 (ก่อนหน้านี้ผลคำนวณสูงกว่า LH ทุกช่อง)
+// เปิดให้ระบบกลับมาตั้งราคาช่วงนี้ได้อีก: ลบแถวนี้ออก (วันที่เป็น yyyy-MM-dd เทียบแบบสตริงได้)
+const MANUAL_HOLD_RANGES = [
+  { from: '2026-11-01', to: '2026-12-31' },
+];
+function isManualHold_(dateStr) {
+  return MANUAL_HOLD_RANGES.some(r => dateStr >= r.from && dateStr <= r.to);
+}
+
 // ── Main entry point ──
 // หมายเหตุ: ห่อด้วย try/catch ชั้นนอก เพราะเดิมถ้า error ที่ไม่ใช่ session-expired
 // (เช่น exception ตอนอ่าน sheet, network error ตอน checkSessionValid_) จะไม่มีการแจ้งเตือนเลย
@@ -285,7 +295,7 @@ function pushOnePage(startDateStr, targets, cookie, dryRunOverride) {
     }
 
     pageDates.forEach((dateStr, idx) => {
-      if (BLACKOUT_DATES.has(dateStr)) return; // ตั้งราคามือไว้แล้ว — ข้ามไม่แตะ ไม่นับ ไม่ error
+      if (BLACKOUT_DATES.has(dateStr) || isManualHold_(dateStr)) return; // ตั้งราคามือไว้แล้ว — ข้ามไม่แตะ ไม่นับ ไม่ error
       const targetRate = targets[dateStr] && targets[dateStr][roomType];
       if (targetRate === undefined) return;
 
