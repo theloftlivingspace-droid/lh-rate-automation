@@ -2,8 +2,16 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert'), path = require('path');
 const rd = f => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8');
 const code = rd('computeTargetRates.gs') + '\n' + rd('RateReasons.gs') +
-  '\n;({ explainRate_, buildRateReasonRow_, rateFactors_, rateUnclamped_, calcRate, applyRampLimit_, ROOM_CONFIG })';
-const X = vm.runInNewContext(code, { Logger: { log() {} }, Utilities: { formatDate: (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') }, SpreadsheetApp: {}, console });
+  '\n;({ readRateReasons_, explainRate_, buildRateReasonRow_, rateFactors_, rateUnclamped_, calcRate, applyRampLimit_, ROOM_CONFIG })';
+const pad = n => String(n).padStart(2, '0');
+const sandbox = {
+  FAKE: [],
+  SpreadsheetApp: { openById: () => ({ getSheetByName: () => ({ getDataRange: () => ({ getValues: () => sandbox.FAKE }) }) }) },
+  Logger: { log() {} },
+  Utilities: { formatDate: (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) },
+  console,
+};
+const X = vm.runInNewContext(code, sandbox);
 
 // 1) คำอธิบายต้องสร้างราคาเดิมได้เป๊ะ: unclamped → ชนพื้น/เพดาน = calcRate
 let checked = 0;
@@ -36,3 +44,26 @@ assert.strictEqual(row.length, 9); assert.ok(Array.isArray(JSON.parse(row[7])));
 // 5) ไม่แตะสูตรราคา: calcRate ยังมี product เดิมครบทุกตัว
 assert.ok(/base \* dowMult \* seasonMult \* occMult \* leadMult \* promoMult \* extraPromoMult \* adjustmentMult \* floodMult/.test(rd('computeTargetRates.gs')));
 console.log('rate reasons tests OK (' + checked + ' ชุดเทียบสูตร)');
+
+// 6) readRateReasons_: กรองช่วงวันที่/ห้อง, แปลง Date ของ Sheets, ข้ามแถวเสีย, จำกัดผลลัพธ์
+{
+  const same = (a, b) => assert.strictEqual(JSON.stringify(a), JSON.stringify(b)); // ผลจาก vm คนละ realm เทียบผ่าน JSON
+  const hdr = ['Date', 'RoomType', 'Rate', 'PrevRate', 'RawRate', 'Base', 'Reason', 'Factors', 'UpdatedAt'];
+  const f = JSON.stringify([{ key: 'dow', label: 'วันเสาร์', mult: 1.09 }]);
+  sandbox.FAKE = [hdr,
+    ['2026-11-22', 'Allure', 1100, 1000, 1150, 941, 'เหตุผล A', f, 'now'],
+    [vm.runInContext('new Date(2026, 10, 21)', sandbox), 'Retro', 1200, '', 1200, 962, 'เหตุผล B', 'ไม่ใช่json', 'now'],  // Date จาก Sheets + factors เสีย
+    ['ไม่ใช่วันที่', 'Retro', 1, 1, 1, 1, 'x', '[]', 'now'],                                   // แถวเสีย ต้องข้าม
+    ['2026-12-30', 'Allure', 1500, 1400, 1500, 941, 'เหตุผล C', '[]', 'now']];
+  let r = X.readRateReasons_({});
+  assert.strictEqual(r.ok, true); assert.strictEqual(r.rows.length, 3);
+  same(r.rows.map(x => x.date), ['2026-11-21', '2026-11-22', '2026-12-30']); // เรียงตามวันที่ + แปลง Date
+  assert.strictEqual(r.rows[0].prev, null); same(r.rows[0].factors, []);
+  assert.strictEqual(r.rows[1].factors[0].mult, 1.09);
+  r = X.readRateReasons_({ from: '2026-11-22', to: '2026-11-30', room: 'Allure' });
+  same(r.rows.map(x => x.reason), ['เหตุผล A']);
+  assert.strictEqual(X.readRateReasons_({ from: 'drop table' }).rows.length, 3); // from เสีย = ไม่กรอง ไม่ error
+  sandbox.FAKE = [hdr].concat(Array.from({ length: 500 }, (_, i) => ['2026-11-22', 'Allure', 1000 + i, '', 1000, 941, 'r', '[]', 'now']));
+  assert.strictEqual(X.readRateReasons_({}).rows.length, 400);
+}
+console.log('read rate reasons tests OK');

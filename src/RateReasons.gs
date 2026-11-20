@@ -82,3 +82,35 @@ function writeRateReasons_(ss, rows) {
   sheet.getRange(2, 1, rows.length, 9).setValues(rows);
   Logger.log('เขียน Rate_Reasons สำเร็จ: ' + rows.length + ' แถว');
 }
+
+// ── อ่าน Rate_Reasons ให้แดชบอร์ด (เรียกผ่าน doGet action=rateReasons — อ่านอย่างเดียว ตรวจ token ที่ doGet แล้ว) ──
+// params: from / to (yyyy-MM-dd, ไม่บังคับ), room (ไม่บังคับ) · คืนไม่เกิน 400 แถว เรียงตามวันที่แล้วประเภทห้อง
+function readRateReasons_(params) {
+  params = params || {};
+  const ss = SpreadsheetApp.openById(OUTPUT_SHEET_ID);
+  const sheet = ss.getSheetByName(RATE_REASONS_SHEET);
+  if (!sheet) return { ok: true, rows: [], updatedAt: '', note: 'ยังไม่มีแท็บ Rate_Reasons (รอรอบคำนวณคืนถัดไป)' };
+  const vals = sheet.getDataRange().getValues();
+  const iso = v => (v instanceof Date ? Utilities.formatDate(v, 'Asia/Bangkok', 'yyyy-MM-dd') : String(v == null ? '' : v).slice(0, 10));
+  const okDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
+  const from = okDate(params.from) ? params.from : '';
+  const to = okDate(params.to) ? params.to : '';
+  const room = typeof params.room === 'string' ? params.room.slice(0, 20) : '';
+  const rows = [];
+  let updatedAt = '';
+  for (let i = 1; i < vals.length; i++) {
+    const r = vals[i];
+    const d = iso(r[0]);
+    if (!okDate(d)) continue;
+    if (from && d < from) continue;
+    if (to && d > to) continue;
+    if (room && String(r[1]) !== room) continue;
+    let factors = [];
+    try { factors = JSON.parse(r[7] || '[]'); } catch (e) { factors = []; }
+    const num = v => (v === '' || v == null || !isFinite(Number(v)) ? null : Number(v));
+    rows.push({ date: d, room: String(r[1]), rate: num(r[2]), prev: num(r[3]), raw: num(r[4]), base: num(r[5]), reason: String(r[6] || ''), factors: factors });
+    updatedAt = String(r[8] || updatedAt);
+  }
+  rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.room < b.room ? -1 : 1));
+  return { ok: true, rows: rows.slice(0, 400), updatedAt: updatedAt };
+}
