@@ -89,8 +89,9 @@ function readRateReasons_(params) {
   params = params || {};
   const ss = SpreadsheetApp.openById(OUTPUT_SHEET_ID);
   const sheet = ss.getSheetByName(RATE_REASONS_SHEET);
-  if (!sheet) return { ok: true, rows: [], updatedAt: '', note: 'ยังไม่มีแท็บ Rate_Reasons (รอรอบคำนวณคืนถัดไป)' };
-  const vals = sheet.getDataRange().getValues();
+  const vals = sheet ? sheet.getDataRange().getValues() : [];
+  // ยังไม่เคยมีรอบคำนวณที่บันทึกเหตุผล → อธิบายจากราคาปัจจุบันใน Target_Rates ทันที (ไม่ต้องรอรอบถัดไป)
+  if (vals.length <= 1) return readReasonsFromTargetRates_(ss, params);
   const iso = v => (v instanceof Date ? Utilities.formatDate(v, 'Asia/Bangkok', 'yyyy-MM-dd') : String(v == null ? '' : v).slice(0, 10));
   const okDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
   const from = okDate(params.from) ? params.from : '';
@@ -113,4 +114,40 @@ function readRateReasons_(params) {
   }
   rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.room < b.room ? -1 : 1));
   return { ok: true, rows: rows.slice(0, 400), updatedAt: updatedAt };
+}
+
+// ── ทางสำรอง: สร้างเหตุผลจาก Target_Rates ปัจจุบัน (Date, RoomType, Rate, Occ%, DaysAhead, UpdatedAt) ──
+// ใช้สูตรเดียวกับ calcRate ณ ตอนอ่าน; ไม่มีราคาก่อนหน้า (ramp) จึงบอกแค่ว่ายังไม่ถึงราคาเป้า
+function readReasonsFromTargetRates_(ss, params) {
+  const sheet = ss.getSheetByName('Target_Rates');
+  if (!sheet) return { ok: true, rows: [], updatedAt: '', note: 'ยังไม่มีแท็บ Target_Rates (ยังไม่เคยคำนวณราคา)' };
+  const vals = sheet.getDataRange().getValues();
+  const iso = v => (v instanceof Date ? Utilities.formatDate(v, 'Asia/Bangkok', 'yyyy-MM-dd') : String(v == null ? '' : v).slice(0, 10));
+  const okDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
+  const from = okDate(params.from) ? params.from : '';
+  const to = okDate(params.to) ? params.to : '';
+  const room = typeof params.room === 'string' ? params.room.slice(0, 20) : '';
+  const rows = [];
+  let updatedAt = '';
+  for (let i = 1; i < vals.length && rows.length < 400; i++) {
+    const r = vals[i];
+    const d = iso(r[0]);
+    const roomType = String(r[1] || '');
+    if (!okDate(d) || !ROOM_CONFIG[roomType]) continue;
+    if (from && d < from) continue;
+    if (to && d > to) continue;
+    if (room && roomType !== room) continue;
+    const rate = Number(r[2]), occ = Number(r[3]), ahead = Number(r[4]);
+    if (!isFinite(rate) || !isFinite(occ) || !isFinite(ahead)) continue;
+    const date = new Date(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
+    try {
+      const raw = calcRate(roomType, date, occ, ahead);
+      const e = explainRate_(roomType, date, occ, ahead, raw, null, rate, d);
+      const lag = rate !== raw ? ' · ยังไม่ถึงราคาเป้า ฿' + raw + ' (ปรับทีละไม่เกิน ' + RATE_CHANGE_CAP_PCT + '% ต่อคืน)' : '';
+      rows.push({ date: d, room: roomType, rate: rate, prev: null, raw: raw, base: e.base, reason: e.reason + lag, factors: e.factors });
+      updatedAt = String(r[5] || updatedAt);
+    } catch (err) { /* ข้ามแถวที่อธิบายไม่ได้ */ }
+  }
+  rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.room < b.room ? -1 : 1));
+  return { ok: true, rows: rows, updatedAt: updatedAt, source: 'target_rates', note: 'อธิบายจากราคาปัจจุบันใน Target_Rates (ยังไม่มีรอบคำนวณที่บันทึกเหตุผลและราคาเดิมไว้)' };
 }
