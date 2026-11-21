@@ -6,7 +6,11 @@ const code = rd('computeTargetRates.gs') + '\n' + rd('RateReasons.gs') +
 const pad = n => String(n).padStart(2, '0');
 const sandbox = {
   FAKE: [],
-  SpreadsheetApp: { openById: () => ({ getSheetByName: () => ({ getDataRange: () => ({ getValues: () => sandbox.FAKE }) }) }) },
+  TARGET: null,
+  SpreadsheetApp: { openById: () => ({ getSheetByName: (n) => {
+    const v = n === 'Rate_Reasons' ? sandbox.FAKE : n === 'Target_Rates' ? sandbox.TARGET : null;
+    return v ? { getDataRange: () => ({ getValues: () => v }) } : null;
+  } }) },
   Logger: { log() {} },
   Utilities: { formatDate: (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) },
   console,
@@ -65,5 +69,31 @@ console.log('rate reasons tests OK (' + checked + ' ชุดเทียบส�
   assert.strictEqual(X.readRateReasons_({ from: 'drop table' }).rows.length, 3); // from เสีย = ไม่กรอง ไม่ error
   sandbox.FAKE = [hdr].concat(Array.from({ length: 500 }, (_, i) => ['2026-11-22', 'Allure', 1000 + i, '', 1000, 941, 'r', '[]', 'now']));
   assert.strictEqual(X.readRateReasons_({}).rows.length, 400);
+}
+// 7) ทางสำรอง: ยังไม่มี Rate_Reasons → อธิบายจาก Target_Rates ปัจจุบันทันที
+{
+  const same = (a, b) => assert.strictEqual(JSON.stringify(a), JSON.stringify(b));
+  const hdr = ['Date', 'RoomType', 'Rate', 'Occ%', 'DaysAhead', 'UpdatedAt'];
+  const date = new Date(2026, 11, 20);
+  const rawA = X.calcRate('Allure', date, 90, 29);
+  sandbox.FAKE = [];                                  // Rate_Reasons ว่าง/ไม่มี
+  sandbox.TARGET = [hdr,
+    ['2026-12-20', 'Allure', rawA, 90, 29, 'T1'],      // ตรงเป้า
+    [vm.runInContext('new Date(2026, 11, 21)', sandbox), 'Retro', 50, 40, 30, 'T1'], // Date จาก Sheets + ราคาต่ำกว่าเป้า
+    ['2026-12-22', 'ห้องไม่มีจริง', 1000, 50, 31, 'T1'], // ประเภทห้องไม่รู้จัก ต้องข้าม
+    ['2026-12-23', 'Allure', 'abc', 50, 32, 'T1']];     // ราคาเสีย ต้องข้าม
+  let r = X.readRateReasons_({});
+  assert.strictEqual(r.ok, true); assert.strictEqual(r.source, 'target_rates'); assert.ok(r.note);
+  same(r.rows.map(x => x.date + x.room), ['2026-12-20Allure', '2026-12-21Retro']);
+  assert.ok(new RegExp('฿' + rawA).test(r.rows[0].reason) && r.rows[0].reason.indexOf('ยังไม่ถึงราคาเป้า') < 0);
+  assert.ok(r.rows[1].reason.indexOf('ยังไม่ถึงราคาเป้า') >= 0);
+  assert.strictEqual(r.rows[0].prev, null);
+  r = X.readRateReasons_({ from: '2026-12-21', room: 'Retro' });
+  same(r.rows.map(x => x.room), ['Retro']);
+  sandbox.TARGET = null;
+  r = X.readRateReasons_({}); assert.strictEqual(r.ok, true); assert.strictEqual(r.rows.length, 0); assert.ok(r.note);
+  // Rate_Reasons มีข้อมูล → ใช้ของที่บันทึกไว้ ไม่ใช่ทางสำรอง
+  sandbox.FAKE = [['Date'], ['2026-11-22', 'Allure', 1100, 1000, 1150, 941, 'เหตุผลที่บันทึกไว้', '[]', 'now']];
+  r = X.readRateReasons_({}); assert.strictEqual(r.source, undefined); assert.strictEqual(r.rows[0].reason, 'เหตุผลที่บันทึกไว้');
 }
 console.log('read rate reasons tests OK');
