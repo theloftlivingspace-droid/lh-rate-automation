@@ -40,6 +40,10 @@ function doGet(e) {
   }
 
   const action = params.action;
+  // อ่านอย่างเดียว: เหตุผลราคา (RateReasons.gs) ให้แดชบอร์ด — ไม่คิวงาน ไม่แก้ข้อมูล
+  if (action === 'rateReasons') {
+    try { return respond(readRateReasons_(params)); } catch (err) { return respond({ ok: false, error: String(err) }); }
+  }
   const validActions = { pushRates: 'pushRatesToLH', computeAndPush: 'computeThenPush', diffRates: 'diffRatesVsLH' };
   const handlerFn = validActions[action];
   if (!handlerFn) {

@@ -460,6 +460,7 @@ function computeTargetRates_() {
 
   const rows = [];
   const now = new Date().toISOString();
+  const reasonRows = []; // อธิบายราคา (RateReasons.gs) — อ่านอย่างเดียว พังแล้วข้าม ไม่กระทบราคา
 
   for (let dOffset = 0; dOffset <= DAYS_AHEAD_TO_COMPUTE; dOffset++) {
     const date = new Date(today);
@@ -479,6 +480,7 @@ function computeTargetRates_() {
         dOffset,
         now,
       ]);
+      try { reasonRows.push(buildRateReasonRow_(dateStr, roomType, date, occ, dOffset, rawRate, prevRate, rate, now)); } catch (e) { /* ข้าม */ }
     });
   }
 
@@ -495,6 +497,7 @@ function computeTargetRates_() {
   sheet.appendRow(['Date', 'RoomType', 'Rate', 'Occ%', 'DaysAhead', 'UpdatedAt']);
   sheet.getRange(2, 1, rows.length, 6).setValues(rows);
   Logger.log('เขียน Target_Rates สำเร็จ: ' + rows.length + ' แถว (ramp limiter cap=' + RATE_CHANGE_CAP_PCT + '%)');
+  try { writeRateReasons_(outputSs, reasonRows); } catch (e) { Logger.log('Rate_Reasons ข้าม: ' + e); }
 }
 
 // ── ตั้ง trigger รันทุกคืน 02:00 (เรียกครั้งเดียวตอน setup) ──
