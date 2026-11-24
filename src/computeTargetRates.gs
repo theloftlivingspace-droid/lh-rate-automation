@@ -23,15 +23,15 @@ const DAYS_AHEAD_TO_COMPUTE = 90;
 // คำนวณจากอัตราส่วน ราคามือ ÷ target เดิม (มัธยฐานของ 24 พ.ย., 28 พ.ย.-5 ธ.ค. ไม่รวม blackout) คูณ base เดิม ปัดหลัก 5:
 // Luxury 780→505 | Retro 962→570 | Allure 941→490 | Elegance 690→365 | Legacy 699→370 | Radiance 700→400
 // Allure min 500→360 (พื้นราคา 400) เพราะราคามือ Allure 400 ต่ำกว่าพื้นเดิม 550 | max ไม่แตะ
-// อัปเดต 24 พ.ย. 2026 ตามคำสั่ง Nathan: พื้นราคา 400 ทุกห้อง (min 360 × 1.1 ปัดหลัก 50 = 400) — Luxury 450→360, Retro 400→360, Radiance 380→360
+// อัปเดต 24 พ.ย. 2026 ตามคำสั่ง Nathan: base ไม่ต่ำกว่า 400 — ห้องที่ต่ำกว่าปรับขึ้นเป็น 400 (Elegance 365→400, Legacy 370→400) ห้องที่สูงกว่าไม่แตะ; พื้นราคา (min) ไม่เปลี่ยนจากรอบก่อน
 // ค่าก่อนแก้: Luxury 780/450 | Retro 962/400 | Allure 941/500 | Elegance 690/360 | Legacy 699/360 | Radiance 700/380
 const ROOM_CONFIG = {
-  Luxury:   { base: 505, min: 360, max: 1800, count: 1 },
-  Retro:    { base: 570, min: 360, max: 1500, count: 1 },
+  Luxury:   { base: 505, min: 450, max: 1800, count: 1 },
+  Retro:    { base: 570, min: 400, max: 1500, count: 1 },
   Allure:   { base: 490, min: 360, max: 1400, count: 2 },
-  Elegance: { base: 365, min: 360, max: 1300, count: 2 },
-  Legacy:   { base: 370, min: 360, max: 1300, count: 2 },
-  Radiance: { base: 400, min: 360, max: 1350, count: 2 },
+  Elegance: { base: 400, min: 360, max: 1300, count: 2 },
+  Legacy:   { base: 400, min: 360, max: 1300, count: 2 },
+  Radiance: { base: 400, min: 380, max: 1350, count: 2 },
 };
 
 // ── DOW multiplier ──
