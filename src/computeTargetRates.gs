@@ -19,13 +19,18 @@ const DAYS_AHEAD_TO_COMPUTE = 90;
 // อัปเดต 25 ก.ย. 2026: เพิ่ม base ของ Retro และ Radiance ขึ้น +30% ตามคำสั่ง Nathan
 // Retro: 740 → 962 (740*1.30) | Radiance: 613 → 797 (613*1.30, ปัดเศษ)
 // อัปเดต 2 ต.ค. 2026: เพิ่ม base ของ Allure ขึ้น +20% ตามคำสั่ง Nathan — Allure: 784 → 941 (784*1.20, ปัดเศษ)
+// อัปเดต 24 พ.ย. 2026 ตามคำสั่ง Nathan: ปรับ base/พื้นราคาให้ใกล้ราคามือที่ตั้งไว้ใน LH (ผลคำนวณเดิมสูงกว่าราคามือ 1.5-2 เท่า)
+// คำนวณจากอัตราส่วน ราคามือ ÷ target เดิม (มัธยฐานของ 24 พ.ย., 28 พ.ย.-5 ธ.ค. ไม่รวม blackout) คูณ base เดิม ปัดหลัก 5:
+// Luxury 780→505 | Retro 962→570 | Allure 941→490 | Elegance 690→365 | Legacy 699→370 | Radiance 700→400
+// Allure min 500→360 (พื้นราคา 400) เพราะราคามือ Allure 400 ต่ำกว่าพื้นเดิม 550 | max ไม่แตะ
+// ค่าก่อนแก้: Luxury 780/450 | Retro 962/400 | Allure 941/500 | Elegance 690/360 | Legacy 699/360 | Radiance 700/380
 const ROOM_CONFIG = {
-  Luxury:   { base: 780, min: 450, max: 1800, count: 1 },
-  Retro:    { base: 962, min: 400, max: 1500, count: 1 },
-  Allure:   { base: 941, min: 500, max: 1400, count: 2 },
-  Elegance: { base: 690, min: 360, max: 1300, count: 2 },
-  Legacy:   { base: 699, min: 360, max: 1300, count: 2 },
-  Radiance: { base: 700, min: 380, max: 1350, count: 2 }, // 6 ต.ค. 2026: 797 → 700 ตามคำสั่ง Nathan (ห้องใหม่ ขายไม่ออกที่ราคาเดิม ปรับให้เท่า Elegance/Legacy)
+  Luxury:   { base: 505, min: 450, max: 1800, count: 1 },
+  Retro:    { base: 570, min: 400, max: 1500, count: 1 },
+  Allure:   { base: 490, min: 360, max: 1400, count: 2 },
+  Elegance: { base: 365, min: 360, max: 1300, count: 2 },
+  Legacy:   { base: 370, min: 360, max: 1300, count: 2 },
+  Radiance: { base: 400, min: 380, max: 1350, count: 2 },
 };
 
 // ── DOW multiplier ──
