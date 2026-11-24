@@ -265,7 +265,15 @@ function calcRate(roomType, date, occPct, daysAhead) {
 // "คืนก่อนหน้า" สำหรับวันที่เดียวกัน (จาก Target_Rates เดิมก่อนถูกเขียนทับ) — เป็นการดักที่ระดับ
 // เจตนา ไม่ใช่ราคาจริงใน LH ณ ขณะนี้ (ซึ่งอาจไม่ตรงกับ Target_Rates เดิมอยู่แล้วถ้ามีคืนไหน push ไม่ติด)
 const RATE_CHANGE_CAP_PCT = 15;
+// เพิ่ม 24 พ.ย. 2026 ตามคำสั่ง Nathan: ข้ามตัวจำกัด 15% แบบครั้งเดียว ให้ Target_Rates ลงถึงราคาคำนวณ (RawRate) ทันที
+// หลังปรับ base ใหม่ (ไม่ต้องรอไล่ลง 3-4 คืน) — มีผลเฉพาะรอบที่รันในวันที่ตั้งไว้ด้านล่าง (เวลาไทย) หมดวันแล้วกลับไปจำกัด 15% เอง
+// ไม่ต้องมาปิดมือ ถ้ารันไม่ทันวันนั้น ให้แก้วันที่เป็นวันที่จะรัน
+const RAMP_BYPASS_DATE = '2026-11-24';
+function isRampBypassToday_() {
+  return Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd') === RAMP_BYPASS_DATE;
+}
 function applyRampLimit_(rawTarget, prevRate, cfg) {
+  if (isRampBypassToday_()) return rawTarget;
   if (prevRate == null || !isFinite(prevRate) || prevRate <= 0) return rawTarget;
   const maxUp = prevRate * (1 + RATE_CHANGE_CAP_PCT / 100);
   const maxDown = prevRate * (1 - RATE_CHANGE_CAP_PCT / 100);
