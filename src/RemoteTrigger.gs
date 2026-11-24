@@ -80,6 +80,25 @@ function computeThenPush() {
   pushRatesToLH();
 }
 
+// ── ปิด trigger อัตโนมัติของ compute/push (เพิ่ม 24 พ.ย. 2026 ตามคำสั่ง Nathan) ──
+// เหตุผล: session LH หมดอายุภายใน ~4 ชม. หลัง login (ต้องผ่าน MFA) รอบอัตโนมัติจึงพังทุกเช้าและส่งแจ้งเตือนซ้ำ
+// ใช้ปุ่ม Sync + Push ใน Chrome extension วันละครั้งแทน (เรียก computeAndPush → computeThenPush)
+// วิธีใช้: รัน removeNightlyComputeAndPushTrigger() ครั้งเดียวใน Apps Script (ลบเฉพาะ trigger ของ compute/push ไม่แตะ keepLhSessionAlive)
+// อย่ารัน setupNightlyComputeAndPushTrigger() อีก ถ้าไม่ได้ตั้งใจเปิดรอบอัตโนมัติกลับมา
+function removeNightlyComputeAndPushTrigger() {
+  let removed = 0;
+  ScriptApp.getProjectTriggers().forEach(t => {
+    const fn = t.getHandlerFunction();
+    if (fn === 'computeTargetRates' || fn === 'pushRatesToLH' || fn === 'computeThenPush') {
+      ScriptApp.deleteTrigger(t);
+      removed++;
+      Logger.log('ลบ trigger: ' + fn);
+    }
+  });
+  Logger.log('ปิดรอบอัตโนมัติแล้ว ลบ ' + removed + ' trigger — คงเหลือ: ' +
+    (ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()).join(', ') || '(ไม่มี)'));
+}
+
 // ── ตั้ง trigger คืนละ 1 ตัว รัน computeThenPush (แทน 2 trigger แยกของ compute/push) ──
 // อัปเดต 9 ส.ค. 2026: เดิมใช้ trigger แยก 2 ตัว (computeTargetRates atHour(2) ไม่ได้ตั้ง
 // nearMinute เลยสุ่มเวลาได้ทั้งชั่วโมง / pushRatesToLH atHour(2).nearMinute(20) ซึ่งจริงๆ
