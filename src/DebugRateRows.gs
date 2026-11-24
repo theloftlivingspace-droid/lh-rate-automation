@@ -35,3 +35,9 @@ function debugRateRows(startDate) {
     Logger.log(`${room} → plan "${planName}" (${ids.length} ช่อง)\n  LH   : ${lh.join(', ')}\n  เป้า : ${tg.join(', ')}`);
   });
 }
+
+// เพิ่ม 24 พ.ย. 2026: ดูช่วง ธ.ค. – ต้น ม.ค. (3 หน้า หน้าละ 14 วัน) เทียบราคามือใน LH กับ Target_Rates
+// รันมือ: debugRateRowsDecJan() — ต้อง sync คุกกี้ LH ก่อน (อ่านอย่างเดียว)
+function debugRateRowsDecJan() {
+  ['2026-12-01', '2026-12-15', '2026-12-29'].forEach(d => debugRateRows(d));
+}
