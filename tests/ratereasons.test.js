@@ -1,7 +1,8 @@
 // รัน: node tests/ratereasons.test.js — คำอธิบายราคาต้องตรงกับสูตรจริง (calcRate) และไม่แตะ logic ราคา
 const fs = require('fs'), vm = require('vm'), assert = require('assert'), path = require('path');
 const rd = f => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8');
-const code = rd('computeTargetRates.gs') + '\n' + rd('RateReasons.gs') +
+// ปิด RAMP_BYPASS_DATE (สวิตช์ข้าม ramp รายวัน) ในเทสต์ — ไม่งั้นผลเปลี่ยนตามวันที่รัน
+const code = rd('computeTargetRates.gs').replace(/const RAMP_BYPASS_DATE = '[^']*'/, "const RAMP_BYPASS_DATE = ''") + '\n' + rd('RateReasons.gs') +
   '\n;({ readRateReasons_, explainRate_, buildRateReasonRow_, rateFactors_, rateUnclamped_, calcRate, applyRampLimit_, ROOM_CONFIG })';
 const pad = n => String(n).padStart(2, '0');
 const sandbox = {
