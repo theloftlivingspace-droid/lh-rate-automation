@@ -38,9 +38,10 @@ reset(); nextResp=[new Error('dns'),R(429),R(500)]; assert.strictEqual(checkSess
 // 7) keep-alive behaviors
 reset(); nextResp=[R(200,'rate_plan_dates')]; keepLhSessionAlive(); assert.ok(store.LH_SESSION_LAST_OK_AT); assert.strictEqual(notified.length,0); assert.strictEqual(syncCalls,1); // เติมจำนวนแขกเมื่อ session ใช้ได้
 reset(); nextResp=[R(503),R(503),R(503)]; keepLhSessionAlive(); assert.strictEqual(syncCalls,0); assert.strictEqual(notified.length,0); assert.ok(!store.LH_SESSION_EXPIRED_AT);
-reset(); nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(syncCalls,0); assert.strictEqual(notified.length,1); assert.ok(store.LH_SESSION_EXPIRED_AT);
+// 24 พ.ย. 2026: ปิดแจ้งเตือน LINE จาก keep-alive — ยังตั้ง EXPIRED_AT เหมือนเดิม แต่ไม่เรียก notifySessionExpired
+reset(); nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(syncCalls,0); assert.strictEqual(notified.length,0); assert.ok(store.LH_SESSION_EXPIRED_AT);
 // ไม่แจ้งซ้ำจนกว่าจะ sync ใหม่
-nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,1); 
+nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,0); 
 store.LH_SESSION_SET_AT=new Date(Date.now()+60000).toISOString(); // sync ใหม่ = หลังเวลาที่แจ้งหมดอายุ (ใช้เวลาปัจจุบัน ไม่ฮาร์ดโค้ด) nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,2);
 // quiet hours: ตรวจเจอแต่ไม่แจ้ง และไม่ตั้ง flag
 reset(); hour=23; nextResp=[R(200,'login')]; keepLhSessionAlive(); assert.strictEqual(notified.length,0); assert.ok(!store.LH_SESSION_EXPIRED_AT);

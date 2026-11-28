@@ -128,8 +128,9 @@ function keepLhSessionAlive() {
       Logger.log('😴 keepLhSessionAlive: session หมดอายุ แต่อยู่ในช่วงเงียบ (22:00-07:00) — จะแจ้งตอนเช้า');
     } else {
       props.setProperty('LH_SESSION_EXPIRED_AT', new Date().toISOString());
-      Logger.log('❌ keepLhSessionAlive: session หมดอายุจริง — แจ้งแอดมิน');
-      notifySessionExpired(getSessionAgeStr_());
+      // 24 พ.ย. 2026 ตามคำสั่ง Nathan: ปิดแจ้งเตือน LINE จาก keep-alive (session หมดทุกวันภายใน ~4 ชม. เพราะ MFA และใช้ปุ่ม Sync+Push วันละครั้งแทน)
+      // ยังบันทึก LH_SESSION_EXPIRED_AT ไว้เหมือนเดิมเพื่อให้ keep-alive หยุดยิงจนกว่าจะ sync ใหม่ — แจ้งเตือนจาก push/diff ที่สั่งเองยังทำงานตามปกติ
+      Logger.log('❌ keepLhSessionAlive: session หมดอายุจริง — ไม่แจ้ง LINE (ปิดไว้) รอ sync คุกกี้ใหม่');
     }
   } finally {
     lock.releaseLock();
